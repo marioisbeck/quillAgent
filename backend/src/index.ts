@@ -1,7 +1,10 @@
+import { Buffer } from 'node:buffer';
+import crypto from 'node:crypto';
 import cors from 'cors';
 import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
 import express, { NextFunction, Request, Response } from 'express';
+import helmet from 'helmet';
 import {
   ActionPayload,
   ApprovalExecutionStatus,
@@ -13,7 +16,29 @@ dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3001;
-const quillApiKey = process.env.QUILL_API_KEY?.trim();
+
+const rawQuillApiKey = process.env.QUILL_API_KEY?.trim() ?? '';
+if (!rawQuillApiKey) {
+  // Auth is mandatory. Previously this middleware silently no-op'd when
+  // QUILL_API_KEY was unset, which exposed /api/approvals (and its resume
+  // tokens, email bodies, calendar IDs) to any localhost caller — see
+  // quillServer/SECURITY_AUDIT/findings/04-backend.md §P0.
+  console.error(
+    'FATAL: QUILL_API_KEY is not set. The backend refuses to start without an API key so that routes serving tokens and approvals cannot be reached unauthenticated.',
+  );
+  process.exit(1);
+}
+const quillApiKey = rawQuillApiKey;
+const quillApiKeyBuffer = Buffer.from(quillApiKey, 'utf8');
+
+const parseOriginList = (raw: string | undefined): string[] =>
+  (raw ?? '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(origin => origin.length > 0);
+
+const allowedOrigins = parseOriginList(process.env.QUILL_ALLOWED_ORIGINS);
+
 const approvalStatuses = new Set<ApprovalStatus>([
   'pending',
   'approved',
@@ -28,7 +53,26 @@ const executionStatuses = new Set<ApprovalExecutionStatus>([
   'failed',
 ]);
 
-app.use(cors());
+app.disable('x-powered-by');
+app.use(helmet());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Non-browser callers (bridges, executors, server-to-server) send no
+      // Origin header; they're authorised by the API key, not by CORS.
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS: origin ${origin} is not allowed`));
+    },
+    credentials: false,
+  }),
+);
 app.use(express.json());
 
 const db = new Database('quill.db');
@@ -152,7 +196,7 @@ const migrateLegacyAuditLogTable = () => {
 migrateLegacyApprovalsTable();
 migrateLegacyAuditLogTable();
 
-const generateId = () => Math.random().toString(36).substring(2, 15);
+const generateId = () => crypto.randomUUID();
 
 type ApprovalRow = {
   id: string;
@@ -209,19 +253,31 @@ const recordAuditEntry = (approvalId: string, action: string, details: string) =
 };
 
 const requireApiKey = (req: Request, res: Response, next: NextFunction) => {
-  if (!quillApiKey) {
-    next();
-    return;
-  }
-
   const providedKey = req.header('x-quill-api-key');
-  if (providedKey !== quillApiKey) {
+  if (!providedKey) {
     res.status(401).json({ error: 'Missing or invalid API key' });
     return;
   }
-
+  const providedBuffer = Buffer.from(providedKey, 'utf8');
+  if (
+    providedBuffer.length !== quillApiKeyBuffer.length ||
+    !crypto.timingSafeEqual(providedBuffer, quillApiKeyBuffer)
+  ) {
+    res.status(401).json({ error: 'Missing or invalid API key' });
+    return;
+  }
   next();
 };
+
+// Liveness probe — safe to leave unauthenticated so monitoring (uptime
+// kuma, docker healthchecks, systemd ExecStartPre) can check us without
+// holding the API key.
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, status: 'live' });
+});
+
+// Every route below this line is API-key-gated.
+app.use('/api', requireApiKey);
 
 app.get('/api/approvals', (req, res) => {
   const rows = db.prepare('SELECT * FROM approvals ORDER BY created_at DESC').all() as ApprovalRow[];
@@ -280,7 +336,7 @@ app.get('/api/approvals/:id', (req, res) => {
   res.json(parseApprovalRow(approval));
 });
 
-app.post('/api/approvals', requireApiKey, (req, res) => {
+app.post('/api/approvals', (req, res) => {
   const { action, payload } = req.body;
   if (typeof action !== 'string' || !action.trim()) {
     res.status(400).json({ error: 'action is required' });
@@ -299,7 +355,7 @@ app.post('/api/approvals', requireApiKey, (req, res) => {
   res.status(201).json(approval ? parseApprovalRow(approval) : { id, action, payload, status: 'pending' });
 });
 
-app.put('/api/approvals/:id', requireApiKey, (req, res) => {
+app.put('/api/approvals/:id', (req, res) => {
   const id = firstParam(req.params.id);
   const { status, feedback, manualEdit } = req.body;
   if (!approvalStatuses.has(status)) {
@@ -333,7 +389,7 @@ app.put('/api/approvals/:id', requireApiKey, (req, res) => {
   });
 });
 
-app.patch('/api/approvals/:id/execution', requireApiKey, (req, res) => {
+app.patch('/api/approvals/:id/execution', (req, res) => {
   const id = firstParam(req.params.id);
   const { executionStatus, executedAt, executionResult, executionError } = req.body;
   if (!executionStatuses.has(executionStatus)) {
@@ -403,7 +459,7 @@ app.get('/api/state/:key', (req, res) => {
   res.json(JSON.parse(result.value));
 });
 
-app.post('/api/state', requireApiKey, (req, res) => {
+app.post('/api/state', (req, res) => {
   const { key, value } = req.body;
   const stmt = db.prepare(`
     INSERT INTO shared_state (key, value, updated_at)
@@ -415,5 +471,7 @@ app.post('/api/state', requireApiKey, (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Quill Backend running on port ${port}`);
+  console.log(
+    `Quill Backend running on port ${port} (auth=required, allowedOrigins=[${allowedOrigins.join(', ') || '(none, non-browser callers only)'}])`,
+  );
 });
