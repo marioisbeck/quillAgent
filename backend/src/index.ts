@@ -1,5 +1,7 @@
 import { Buffer } from 'node:buffer';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
@@ -12,6 +14,14 @@ import {
   ApprovalStatus,
 } from '@quill/shared';
 
+// The backend is invoked from `quillAgent/backend/` by `tsx watch`, so the
+// default dotenv lookup in CWD won't find the workspace-level .env that
+// holds QUILL_API_KEY. Load the workspace root .env first, then let any
+// per-package .env override (and fall back to the regular CWD lookup so
+// production builds that ship their own .env beside the binary still work).
+const here = path.dirname(fileURLToPath(import.meta.url));
+const workspaceEnv = path.resolve(here, '..', '..', '.env');
+dotenv.config({ path: workspaceEnv });
 dotenv.config();
 
 const app = express();
