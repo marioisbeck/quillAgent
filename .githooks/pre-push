@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Pre-push hook: mirror runbook markdown into OpenClaw memory whenever
+# develop/main is being published from quillAgent.
+#
+# quillAgent contributes the `specs/` tree to the consolidated
+# runbook index that lives on the gateway. The actual sync script
+# lives in the sibling `quillServer/` repo (single source of truth);
+# this hook just invokes it via a relative path. The script anchors
+# itself off its own location, so cwd/repo doesn't matter.
+#
+# Why pre-push (not post-commit):
+# - post-commit fires on every WIP save → noisy memory churn.
+# - pre-push fires once per actual `git push`. Failure aborts the push,
+#   so we never publish a change set the gateway can't ingest.
+#
+# Activation:
+#   git config core.hooksPath .githooks
+# (run once per clone; see scripts/setup-githooks.sh)
+#
+# Skip in CI / one-off pushes:
+#   QUILL_SKIP_RUNBOOK_SYNC=1 git push ...
+
+set -euo pipefail
+
+if [[ "${QUILL_SKIP_RUNBOOK_SYNC:-0}" == "1" ]]; then
+  echo "[pre-push] QUILL_SKIP_RUNBOOK_SYNC=1 set — skipping runbook sync." >&2
+  exit 0
+fi
+
+should_sync=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_ref" in
+    refs/heads/develop|refs/heads/main)
+      should_sync=1
+      break
+      ;;
+  esac
+done
+
+if [[ "$should_sync" -eq 0 ]]; then
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+sibling_script="$repo_root/../quillServer/scripts/sync_runbooks_to_openclaw.py"
+
+if [[ ! -f "$sibling_script" ]]; then
+  echo "[pre-push] sibling sync script not found at $sibling_script" >&2
+  echo "[pre-push] is quillServer/ checked out next to quillAgent/?" >&2
+  echo "[pre-push] skip with: QUILL_SKIP_RUNBOOK_SYNC=1 git push ..." >&2
+  exit 1
+fi
+
+echo "[pre-push] syncing runbooks to OpenClaw memory (via quillServer)…" >&2
+if ! python3 "$sibling_script" --apply; then
+  echo "" >&2
+  echo "[pre-push] runbook sync failed. Push aborted." >&2
+  echo "[pre-push] Re-run manually or push with QUILL_SKIP_RUNBOOK_SYNC=1 to bypass." >&2
+  exit 1
+fi
+
+echo "[pre-push] runbook sync ok." >&2
+exit 0
