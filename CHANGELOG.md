@@ -13,4 +13,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per the workspace Gitflow skill at
   [`../.cursor/skills/gitflow-commits/SKILL.md`](../.cursor/skills/gitflow-commits/SKILL.md).
 
-[Unreleased]: https://github.com/marioisbeck/quillAgent/commits/develop
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.0.0...HEAD
+[0.0.0]: https://github.com/marioisbeck/quillAgent/releases/tag/v0.0.0
