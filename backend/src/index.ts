@@ -13,6 +13,13 @@ import {
   ApprovalRequest,
   ApprovalStatus,
 } from '@quill/shared';
+import {
+  canSendLoopkindPush,
+  getLoopkindPushPublicKey,
+  sendLoopkindPushNotifications,
+  type StoredPushSubscription,
+} from './loopkind-push.js';
+import { hashPassword, normalizeEmail, verifyPassword } from './passwords.js';
 
 // The backend is invoked from `quillAgent/backend/` by `tsx watch`, so the
 // default dotenv lookup in CWD won't find the workspace-level .env that
@@ -62,6 +69,8 @@ const executionStatuses = new Set<ApprovalExecutionStatus>([
   'completed',
   'failed',
 ]);
+const LOOPKIND_MIN_PASSWORD_LENGTH = 12;
+const loopkindAllowSignups = process.env.LOOPKIND_ALLOW_SIGNUPS === '1';
 
 app.disable('x-powered-by');
 app.use(helmet());
@@ -86,6 +95,7 @@ app.use(
 app.use(express.json());
 
 const db = new Database('quill.db');
+db.pragma('foreign_keys = ON');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS approvals (
@@ -118,6 +128,30 @@ db.exec(`
     value TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS loopkind_users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS loopkind_push_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    endpoint TEXT NOT NULL UNIQUE,
+    subscription_json TEXT NOT NULL,
+    user_agent TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_success_at DATETIME,
+    last_error TEXT,
+    FOREIGN KEY(user_id) REFERENCES loopkind_users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_loopkind_push_user_id
+    ON loopkind_push_subscriptions(user_id);
 `);
 
 type TableColumn = {
@@ -217,6 +251,26 @@ type ApprovalRow = {
   updated_at: string;
 };
 
+type LoopkindUserRow = {
+  id: string;
+  email: string;
+  password_hash: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type LoopkindPushSubscriptionRow = {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  subscription_json: string;
+  user_agent: string | null;
+  created_at: string;
+  updated_at: string;
+  last_success_at: string | null;
+  last_error: string | null;
+};
+
 const parseApprovalRow = (row: ApprovalRow): ApprovalRequest => ({
   id: row.id,
   action: row.action,
@@ -224,6 +278,12 @@ const parseApprovalRow = (row: ApprovalRow): ApprovalRequest => ({
   status: row.status as ApprovalStatus,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+});
+
+const serializeLoopkindUser = (row: LoopkindUserRow) => ({
+  id: row.id,
+  email: row.email,
+  createdAt: row.created_at,
 });
 
 const isRecord = (value: unknown): value is Record<string, any> =>
@@ -254,6 +314,160 @@ const mergeActionPayload = (
 
 const getApprovalRow = (id: string): ApprovalRow | undefined =>
   db.prepare('SELECT * FROM approvals WHERE id = ?').get(id) as ApprovalRow | undefined;
+
+const getLoopkindUserCount = (): number =>
+  (
+    db.prepare('SELECT COUNT(*) AS count FROM loopkind_users').get() as {
+      count: number;
+    }
+  ).count;
+
+const signupEnabled = (): boolean =>
+  loopkindAllowSignups || getLoopkindUserCount() === 0;
+
+const getLoopkindUserByEmail = (
+  email: string,
+): LoopkindUserRow | undefined =>
+  db
+    .prepare('SELECT * FROM loopkind_users WHERE email = ?')
+    .get(email) as LoopkindUserRow | undefined;
+
+const getLoopkindUserById = (
+  id: string,
+): LoopkindUserRow | undefined =>
+  db.prepare('SELECT * FROM loopkind_users WHERE id = ?').get(id) as
+    | LoopkindUserRow
+    | undefined;
+
+const isValidEmail = (value: string): boolean =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const isValidPushSubscription = (
+  value: unknown,
+): value is {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    auth: string;
+    p256dh: string;
+  };
+} =>
+  isRecord(value) &&
+  typeof value.endpoint === 'string' &&
+  isRecord(value.keys) &&
+  typeof value.keys.auth === 'string' &&
+  typeof value.keys.p256dh === 'string';
+
+const listLoopkindPushSubscriptions = (): StoredPushSubscription[] => {
+  const rows = db
+    .prepare('SELECT id, endpoint, subscription_json FROM loopkind_push_subscriptions')
+    .all() as LoopkindPushSubscriptionRow[];
+
+  return rows.flatMap(row => {
+    try {
+      const subscription = JSON.parse(row.subscription_json) as StoredPushSubscription['subscription'];
+      return [
+        {
+          id: row.id,
+          endpoint: row.endpoint,
+          subscription,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
+};
+
+const pruneLoopkindPushSubscriptions = (ids: string[]) => {
+  if (ids.length === 0) {
+    return;
+  }
+
+  const deleteOne = db.prepare(
+    'DELETE FROM loopkind_push_subscriptions WHERE id = ?',
+  );
+  const transaction = db.transaction((subscriptionIds: string[]) => {
+    for (const id of subscriptionIds) {
+      deleteOne.run(id);
+    }
+  });
+
+  transaction(ids);
+};
+
+const markLoopkindPushDelivery = (ids: string[]) => {
+  if (ids.length === 0) {
+    return;
+  }
+
+  const updateOne = db.prepare(`
+    UPDATE loopkind_push_subscriptions
+    SET last_success_at = CURRENT_TIMESTAMP,
+        last_error = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+  const transaction = db.transaction((subscriptionIds: string[]) => {
+    for (const id of subscriptionIds) {
+      updateOne.run(id);
+    }
+  });
+
+  transaction(ids);
+};
+
+const markLoopkindPushFailures = (entries: Array<{ id: string; error: string }>) => {
+  if (entries.length === 0) {
+    return;
+  }
+
+  const updateOne = db.prepare(`
+    UPDATE loopkind_push_subscriptions
+    SET last_error = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+  const transaction = db.transaction(
+    (failedEntries: Array<{ id: string; error: string }>) => {
+      for (const entry of failedEntries) {
+        updateOne.run(entry.error, entry.id);
+      }
+    },
+  );
+
+  transaction(entries);
+};
+
+const notifyLoopkindSubscribersForApproval = async (
+  approval: ApprovalRequest,
+) => {
+  if (!canSendLoopkindPush()) {
+    return;
+  }
+
+  const result = await sendLoopkindPushNotifications(
+    listLoopkindPushSubscriptions(),
+    {
+      id: approval.id,
+      connector: approval.payload.connector,
+      summary: approval.payload.summary,
+      title: approval.payload.preview?.title,
+      body: approval.payload.preview?.body,
+    },
+  );
+
+  if (result.expiredIds.length > 0) {
+    pruneLoopkindPushSubscriptions(result.expiredIds);
+  }
+
+  markLoopkindPushDelivery(result.deliveredIds);
+  markLoopkindPushFailures(result.failed);
+
+  if (result.failed.length > 0) {
+    console.error('loopkind push delivery failures:', result.failed);
+  }
+};
 
 const recordAuditEntry = (approvalId: string, action: string, details: string) => {
   const stmt = db.prepare(
@@ -288,6 +502,144 @@ app.get('/health', (_req, res) => {
 
 // Every route below this line is API-key-gated.
 app.use('/api', requireApiKey);
+
+app.get('/api/loopkind/auth/bootstrap', (_req, res) => {
+  const hasUsers = getLoopkindUserCount() > 0;
+  res.json({
+    hasUsers,
+    allowSignup: !hasUsers || loopkindAllowSignups,
+    minPasswordLength: LOOPKIND_MIN_PASSWORD_LENGTH,
+  });
+});
+
+app.post('/api/loopkind/auth/signup', (req, res) => {
+  const email = typeof req.body?.email === 'string' ? normalizeEmail(req.body.email) : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  if (!signupEnabled()) {
+    res.status(403).json({ error: 'Signup is disabled' });
+    return;
+  }
+  if (!isValidEmail(email)) {
+    res.status(400).json({ error: 'A valid email is required' });
+    return;
+  }
+  if (password.length < LOOPKIND_MIN_PASSWORD_LENGTH) {
+    res.status(400).json({
+      error: `Password must be at least ${LOOPKIND_MIN_PASSWORD_LENGTH} characters`,
+    });
+    return;
+  }
+  if (getLoopkindUserByEmail(email)) {
+    res.status(409).json({ error: 'That email is already in use' });
+    return;
+  }
+
+  const id = generateId();
+  db.prepare(
+    'INSERT INTO loopkind_users (id, email, password_hash) VALUES (?, ?, ?)',
+  ).run(id, email, hashPassword(password));
+
+  const user = getLoopkindUserById(id);
+  res.status(201).json({
+    user: user ? serializeLoopkindUser(user) : { id, email },
+  });
+});
+
+app.post('/api/loopkind/auth/login', (req, res) => {
+  const email = typeof req.body?.email === 'string' ? normalizeEmail(req.body.email) : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  if (!isValidEmail(email) || password.length === 0) {
+    res.status(400).json({ error: 'Email and password are required' });
+    return;
+  }
+
+  const user = getLoopkindUserByEmail(email);
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    res.status(401).json({ error: 'Invalid credentials' });
+    return;
+  }
+
+  res.json({
+    user: serializeLoopkindUser(user),
+  });
+});
+
+app.get('/api/loopkind/push/public-key', (_req, res) => {
+  const publicKey = getLoopkindPushPublicKey();
+  res.json({
+    enabled: Boolean(publicKey),
+    publicKey,
+  });
+});
+
+app.post('/api/loopkind/push/subscriptions', (req, res) => {
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  const subscription = req.body?.subscription;
+  const userAgent =
+    typeof req.body?.userAgent === 'string' && req.body.userAgent.trim().length > 0
+      ? req.body.userAgent.trim()
+      : null;
+
+  if (!getLoopkindUserById(userId)) {
+    res.status(404).json({ error: 'Loopkind user not found' });
+    return;
+  }
+  if (!isValidPushSubscription(subscription)) {
+    res.status(400).json({ error: 'A valid PushSubscription is required' });
+    return;
+  }
+
+  const existing = db
+    .prepare(
+      'SELECT id FROM loopkind_push_subscriptions WHERE endpoint = ?',
+    )
+    .get(subscription.endpoint) as { id: string } | undefined;
+  const id = existing?.id ?? generateId();
+
+  db.prepare(`
+    INSERT INTO loopkind_push_subscriptions (
+      id,
+      user_id,
+      endpoint,
+      subscription_json,
+      user_agent,
+      updated_at,
+      last_error
+    )
+    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, NULL)
+    ON CONFLICT(endpoint) DO UPDATE SET
+      user_id = excluded.user_id,
+      subscription_json = excluded.subscription_json,
+      user_agent = excluded.user_agent,
+      updated_at = CURRENT_TIMESTAMP,
+      last_error = NULL
+  `).run(
+    id,
+    userId,
+    subscription.endpoint,
+    JSON.stringify(subscription),
+    userAgent,
+  );
+
+  res.status(existing ? 200 : 201).json({ success: true, id });
+});
+
+app.delete('/api/loopkind/push/subscriptions', (req, res) => {
+  const endpoint =
+    typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
+
+  if (!endpoint) {
+    res.status(400).json({ error: 'endpoint is required' });
+    return;
+  }
+
+  db.prepare(
+    'DELETE FROM loopkind_push_subscriptions WHERE endpoint = ?',
+  ).run(endpoint);
+  res.json({ success: true });
+});
 
 app.get('/api/approvals', (req, res) => {
   const rows = db.prepare('SELECT * FROM approvals ORDER BY created_at DESC').all() as ApprovalRow[];
@@ -362,7 +714,19 @@ app.post('/api/approvals', (req, res) => {
   stmt.run(id, action, JSON.stringify(payload));
 
   const approval = getApprovalRow(id);
-  res.status(201).json(approval ? parseApprovalRow(approval) : { id, action, payload, status: 'pending' });
+  const createdApproval = approval ? parseApprovalRow(approval) : null;
+
+  if (createdApproval) {
+    void notifyLoopkindSubscribersForApproval(createdApproval).catch(error => {
+      const message =
+        error instanceof Error ? error.message : 'Unknown loopkind push failure';
+      console.error(`Failed to send loopkind push notifications for ${createdApproval.id}:`, message);
+    });
+  }
+
+  res.status(201).json(
+    createdApproval ?? { id, action, payload, status: 'pending' },
+  );
 });
 
 app.put('/api/approvals/:id', (req, res) => {
