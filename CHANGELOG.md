@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `backend/scripts/seed-loopkind-demo-cards.py` — top up the loopkind
+  queue with a small catalog of safe demo cards (calendar, mail,
+  laptop) so the reviewer has fresh content to test gestures, push
+  notifications, and card layout. Supports `--connector`, `--max`,
+  and `--dry-run`. Documented in `backend/README.md`.
 - `DELETE /api/approvals/:id` endpoint that hard-deletes an approval
   and its audit-log entries in a single transaction. Pending approvals
   are protected (`409 Conflict`) so the endpoint cannot be used to
