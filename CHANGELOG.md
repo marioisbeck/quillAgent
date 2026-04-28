@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `backend/scripts/reset-loopkind-accounts.py` — SSH-gated dry-run-by-default
+  script that wipes `loopkind_users` and `loopkind_push_subscriptions` so a
+  stuck signup can be handed back to the next visitor without touching
+  approval data.
+- `backend/README.md` documenting the backend service and its operator
+  scripts.
 - Loopkind account bootstrap, credential verification, and push-subscription
   APIs in the backend so the review surface can stay private and notify signed-
   in devices when new approval cards arrive.
