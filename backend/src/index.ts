@@ -792,6 +792,32 @@ app.delete('/api/approvals/:id', (req, res) => {
   res.json({ success: true });
 });
 
+app.delete('/api/approvals', (req, res) => {
+  // Bulk wipe of reviewed approvals. Only ever touches non-pending
+  // rows so an accidental call cannot drop work the reviewer hasn't
+  // seen yet. The same pending-card guard lives on the per-id endpoint
+  // and on the loopkind UI; this is a third belt-and-braces line.
+  const wipeReviewed = db.transaction(() => {
+    const reviewed = db
+      .prepare("SELECT id FROM approvals WHERE status <> 'pending'")
+      .all() as { id: string }[];
+    if (reviewed.length === 0) {
+      return 0;
+    }
+    const placeholders = reviewed.map(() => '?').join(',');
+    const ids = reviewed.map(row => row.id);
+    db.prepare(
+      `DELETE FROM audit_log WHERE approval_id IN (${placeholders})`,
+    ).run(...ids);
+    db.prepare(
+      `DELETE FROM approvals WHERE id IN (${placeholders})`,
+    ).run(...ids);
+    return reviewed.length;
+  });
+  const removed = wipeReviewed();
+  res.json({ success: true, removed });
+});
+
 app.patch('/api/approvals/:id/execution', (req, res) => {
   const id = firstParam(req.params.id);
   const { executionStatus, executedAt, executionResult, executionError } = req.body;

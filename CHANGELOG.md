@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `DELETE /api/approvals` collection endpoint that wipes every
+  non-pending approval row and its audit-log entries in a single
+  transaction. Pending cards are protected (the same guard as the
+  per-id endpoint) so an accidental call cannot drop work the
+  reviewer hasn't seen yet. Returns `{ success, removed }`.
 - `backend/scripts/seed-loopkind-demo-cards.py` — top up the loopkind
   queue with a small catalog of safe demo cards (calendar, mail,
   laptop) so the reviewer has fresh content to test gestures, push
