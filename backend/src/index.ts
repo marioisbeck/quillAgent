@@ -763,6 +763,35 @@ app.put('/api/approvals/:id', (req, res) => {
   });
 });
 
+app.delete('/api/approvals/:id', (req, res) => {
+  const id = firstParam(req.params.id);
+  const approval = getApprovalRow(id);
+  if (!approval) {
+    res.status(404).json({ error: 'Approval not found' });
+    return;
+  }
+
+  // Refuse to delete pending cards via this endpoint. The reviewer should
+  // either reject or approve them first; this is a "tidy history" action,
+  // not an escape hatch for un-reviewed cards. Removing this guard would
+  // let a UI bug or accidental swipe drop a real action without an audit
+  // trail.
+  if (approval.status === 'pending') {
+    res
+      .status(409)
+      .json({ error: 'Cannot delete a pending approval; reject or approve it first.' });
+    return;
+  }
+
+  const removeApproval = db.transaction((approvalId: string) => {
+    db.prepare('DELETE FROM audit_log WHERE approval_id = ?').run(approvalId);
+    db.prepare('DELETE FROM approvals WHERE id = ?').run(approvalId);
+  });
+  removeApproval(id);
+
+  res.json({ success: true });
+});
+
 app.patch('/api/approvals/:id/execution', (req, res) => {
   const id = firstParam(req.params.id);
   const { executionStatus, executedAt, executionResult, executionError } = req.body;

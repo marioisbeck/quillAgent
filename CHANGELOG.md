@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `DELETE /api/approvals/:id` endpoint that hard-deletes an approval
+  and its audit-log entries in a single transaction. Pending approvals
+  are protected (`409 Conflict`) so the endpoint cannot be used to
+  drop un-reviewed work without first approving or rejecting it.
 - `backend/scripts/reset-loopkind-accounts.py` — SSH-gated dry-run-by-default
   script that wipes `loopkind_users` and `loopkind_push_subscriptions` so a
   stuck signup can be handed back to the next visitor without touching
