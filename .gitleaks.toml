@@ -1,0 +1,15 @@
+# quillAgent gitleaks config — extends the default ruleset with allowlists for
+# always-gitignored locations (env files, node_modules). These paths can never
+# reach a commit so scanning them is noise.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Always-gitignored env + node_modules"
+paths = [
+    '''(^|/)\.env(\..+)?$''',
+    '''(^|/)node_modules/''',
+    '''(^|/)dist/''',
+    '''(^|/)build/''',
+]
