@@ -1,11 +1,11 @@
-export type ApprovalStatus = 
+export type ApprovalStatus =
   | 'pending'
   | 'approved'
   | 'rejected'
   | 'changes_requested'
   | 'continuous_improvement';
 
-export type ConnectorType = 
+export type ConnectorType =
   | 'gmail'
   | 'mail'
   | 'calendar'

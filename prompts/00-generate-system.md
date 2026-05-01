@@ -1,7 +1,7 @@
 Please read the following files/directories:
 - `specs/`
 
-I want to generate the entire Quill system step-by-step based on the specifications. 
+I want to generate the entire Quill system step-by-step based on the specifications.
 
 Please follow this sequence, asking for my approval before moving to the next step:
 1. **Architecture & Contracts**: Scaffold the project structure and define the core TypeScript interfaces/types based on `01-architecture.md` and `02-backend-and-contracts.md`.
