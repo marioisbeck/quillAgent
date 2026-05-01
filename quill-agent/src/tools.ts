@@ -23,10 +23,10 @@ export class QuillTools {
    */
   private async waitForApproval(approvalId: string): Promise<ApprovalRequest> {
     console.log(`Waiting for human approval (ID: ${approvalId})...`);
-    
+
     let status = 'pending';
     let approval: ApprovalRequest | null = null;
-    
+
     while (status === 'pending') {
       await new Promise(resolve => setTimeout(resolve, 3000));
       try {
@@ -37,7 +37,7 @@ export class QuillTools {
         console.error('Error checking approval status:', error);
       }
     }
-    
+
     return approval!;
   }
 
@@ -52,20 +52,20 @@ export class QuillTools {
       }, {
         headers: this.authHeaders()
       });
-      
+
       const approvalId = response.data.id;
       const finalApproval = await this.waitForApproval(approvalId);
-      
+
       if (finalApproval.status === 'approved') {
         return { success: true, payload: finalApproval.payload };
       } else if (finalApproval.status === 'changes_requested' || finalApproval.status === 'continuous_improvement') {
         // Find the audit log to get the feedback
         const auditResponse = await axios.get(`${this.apiUrl}/approvals/${approvalId}/audit`); // We need to add this endpoint
-        return { 
-          success: false, 
-          status: finalApproval.status, 
+        return {
+          success: false,
+          status: finalApproval.status,
           feedback: 'User requested changes', // We'll need to fetch actual feedback
-          payload: finalApproval.payload 
+          payload: finalApproval.payload
         };
       } else {
         return { success: false, status: 'rejected', reason: 'Human rejected the action.' };
@@ -103,7 +103,7 @@ export class QuillTools {
    */
   async sendEmail(to: string, subject: string, body: string) {
     console.log(`[Gmail] Preparing to send email to ${to}`);
-    
+
     const payload: ActionPayload = {
       connector: 'gmail',
       summary: `Send email to ${to}`,
@@ -116,7 +116,7 @@ export class QuillTools {
     };
 
     const result = await this.requestApproval('Send Email', payload);
-    
+
     if (result.success) {
       console.log(`[Gmail] Email sent to ${result.payload.details.to}!`);
       return { success: true, message: 'Email sent successfully.' };
@@ -143,7 +143,7 @@ export class QuillTools {
    */
   async deleteFile(path: string) {
     console.log(`[Files] Preparing to delete file: ${path}`);
-    
+
     const payload: ActionPayload = {
       connector: 'files',
       summary: `Delete file: ${path}`,
@@ -155,7 +155,7 @@ export class QuillTools {
     };
 
     const result = await this.requestApproval('Delete File', payload);
-    
+
     if (result.success) {
       console.log(`[Files] File ${path} deleted!`);
       return { success: true, message: 'File deleted successfully.' };
