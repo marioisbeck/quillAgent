@@ -6,6 +6,7 @@ import cors from 'cors';
 import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
 import express, { NextFunction, Request, Response } from 'express';
+import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import {
   ActionPayload,
@@ -93,6 +94,55 @@ app.use(
   }),
 );
 app.use(express.json());
+
+// Rate limiting. Closes audit P2 (`02-code-findings.md` row 7 of the
+// backend table). Two layers:
+//
+//   1. `apiRateLimiter` — generous cap on every `/api/*` route. Protects
+//      against runaway agent loops and slows down brute-force probes
+//      against the API key check. Defaults to 1200 req/min per IP.
+//   2. `authRateLimiter` — tight cap on `/api/loopkind/auth/*`. Keyed by
+//      IP + normalised email so that an attacker can't burn through
+//      30 attempts on a single account by rotating IPs (or, in the
+//      common localhost-only deployment, can't burn 30 attempts on
+//      every account from one shared IP). Defaults to 30 attempts per
+//      15 minutes per (IP, email).
+//
+// The limits are deliberately generous; bridges and executors poll
+// approvals frequently. Operators can tighten via env without redeploys.
+const parseLimitEnv = (raw: string | undefined, fallback: number): number => {
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const apiRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: parseLimitEnv(process.env.QUILL_RATE_LIMIT_API_PER_MIN, 1200),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  // Skip the rate limiter in tests if anyone wires one up — defaults to
+  // false in production.
+  skip: () => process.env.QUILL_RATE_LIMIT_DISABLED === '1',
+  message: { error: 'Too many requests, please slow down' },
+});
+
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: parseLimitEnv(process.env.QUILL_RATE_LIMIT_AUTH_PER_15M, 30),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: () => process.env.QUILL_RATE_LIMIT_DISABLED === '1',
+  // Per-(IP, email) bucket so credential spray against multiple accounts
+  // each gets its own limit. Falls back to IP-only if no email present.
+  keyGenerator: (req, res) => {
+    const ipKey = ipKeyGenerator(req.ip ?? '');
+    const rawEmail = (req.body as { email?: unknown } | undefined)?.email;
+    if (typeof rawEmail !== 'string') return ipKey;
+    return `${ipKey}|${rawEmail.toLowerCase().trim()}`;
+  },
+  message: { error: 'Too many auth attempts, please wait' },
+});
 
 const db = new Database('quill.db');
 db.pragma('foreign_keys = ON');
@@ -499,6 +549,12 @@ const requireApiKey = (req: Request, res: Response, next: NextFunction) => {
 app.get('/health', (_req, res) => {
   res.json({ ok: true, status: 'live' });
 });
+
+// Rate limiters mount BEFORE the API-key check so failed-auth probes
+// also count toward the bucket — otherwise an attacker could hammer
+// `requireApiKey` for free.
+app.use('/api', apiRateLimiter);
+app.use('/api/loopkind/auth', authRateLimiter);
 
 // Every route below this line is API-key-gated.
 app.use('/api', requireApiKey);
