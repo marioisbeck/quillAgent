@@ -23,6 +23,8 @@ on:
 
 permissions:
   contents: read
+  # gitleaks-action@v2 needs PR access to list commits and post comments.
+  pull-requests: write
 
 jobs:
   gitleaks:
@@ -63,7 +65,9 @@ jobs:
           ./osv-scanner --version
 
       - name: Run osv-scanner
-        run: ./osv-scanner --recursive --skip-git ./
+        # osv-scanner v2 removed --skip-git (skipping submodules is the
+        # default now). --recursive still works for walking subpaths.
+        run: ./osv-scanner --recursive ./
 
   semgrep:
     runs-on: ubuntu-latest
