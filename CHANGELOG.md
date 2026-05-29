@@ -1,0 +1,61 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0] - 2026-05-29
+
+First versioned release. quillAgent is now a Quill-side backend that
+serves the approval queue, persists audit logs, gates the loopkind
+review surface, and fans new cards out as web-push notifications to
+installed devices.
+
+### Added
+
+- `DELETE /api/approvals` collection endpoint that wipes every
+  non-pending approval row and its audit-log entries in a single
+  transaction. Pending cards are protected (the same guard as the
+  per-id endpoint) so an accidental call cannot drop work the
+  reviewer hasn't seen yet. Returns `{ success, removed }`.
+- `backend/scripts/seed-loopkind-demo-cards.py` — top up the loopkind
+  queue with a small catalog of safe demo cards (calendar, mail,
+  laptop) so the reviewer has fresh content to test gestures, push
+  notifications, and card layout. Supports `--connector`, `--max`,
+  and `--dry-run`. Documented in `backend/README.md`.
+- `DELETE /api/approvals/:id` endpoint that hard-deletes an approval
+  and its audit-log entries in a single transaction. Pending approvals
+  are protected (`409 Conflict`) so the endpoint cannot be used to
+  drop un-reviewed work without first approving or rejecting it.
+- `backend/scripts/reset-loopkind-accounts.py` — SSH-gated dry-run-by-default
+  script that wipes `loopkind_users` and `loopkind_push_subscriptions` so a
+  stuck signup can be handed back to the next visitor without touching
+  approval data.
+- `backend/README.md` documenting the backend service and its operator
+  scripts.
+- Loopkind account bootstrap, credential verification, and push-subscription
+  APIs in the backend so the review surface can stay private and notify signed-
+  in devices when new approval cards arrive.
+- Initial `CHANGELOG.md` following Keep a Changelog 1.1.0 and SemVer 2.0.0,
+  per the workspace Gitflow skill at
+  [`../.cursor/skills/gitflow-commits/SKILL.md`](../.cursor/skills/gitflow-commits/SKILL.md).
+- `.githooks/pre-push` — repo-tracked git hook that mirrors the
+  consolidated runbook tree (this repo's `specs/` plus sibling
+  `quillServer/` content) into the OpenClaw gateway memory whenever
+  `develop`/`main` is pushed. Calls
+  `../quillServer/scripts/sync_runbooks_to_openclaw.py --apply`. Aborts
+  the push on failure; bypass with `QUILL_SKIP_RUNBOOK_SYNC=1`.
+- `scripts/setup-githooks.sh` — idempotent activator
+  (`git config core.hooksPath .githooks`).
+
+### Changed
+
+- New approvals now fan out web-push notifications to registered loopkind
+  devices whenever VAPID keys are configured.
+
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/marioisbeck/quillAgent/compare/v0.0.0...v0.1.0
+[0.0.0]: https://github.com/marioisbeck/quillAgent/releases/tag/v0.0.0

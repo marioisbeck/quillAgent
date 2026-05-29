@@ -1,0 +1,13 @@
+{
+  "name": "quill-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "backend",
+    "quill-agent"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces"
+  }
+}

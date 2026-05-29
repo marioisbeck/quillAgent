@@ -1,0 +1,15 @@
+---
+description: Fixes GitHub email privacy restrictions by using the correct noreply email address for commits.
+alwaysApply: true
+---
+
+# Git Email Privacy Fix
+
+When encountering the `GH007: Your push would publish a private email address` error during a `git push`, or when initializing a new repository, ensure the correct GitHub noreply email is used.
+
+If the error occurs, run the following commands to fix the commit and push:
+```bash
+git config user.email "22878918+marioisbeck@users.noreply.github.com"
+git commit --amend --author="Mario Beck <22878918+marioisbeck@users.noreply.github.com>" --no-edit
+git push
+```

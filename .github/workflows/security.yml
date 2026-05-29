@@ -1,0 +1,91 @@
+name: security
+
+# Continuous secret + SAST + dependency scans for quillAgent.
+#
+# This is the GitHub-side complement to the local nightly launchd job
+# (`quillServer/scripts/security/quill-scan-local.sh`, Phase B Tier 1
+# B1.2/B1.3/B1.4). CI catches what the local job misses: PRs from a
+# clean clone, pushes from another machine, and the very first push of
+# a new branch.
+#
+# Three jobs:
+#   - gitleaks      on every push and PR (fast; consumes baseline)
+#   - osv-scanner   on PRs and the daily schedule (lockfile changes)
+#   - semgrep       on PRs and the daily schedule (slower SAST)
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+  schedule:
+    - cron: '23 6 * * *'
+
+permissions:
+  contents: read
+  # gitleaks-action@v2 needs PR access to list commits and post comments.
+  pull-requests: write
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository (full history for git-history scan)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          # gitleaks-action@v2 requires GITHUB_TOKEN to scan PRs.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "true"
+          GITLEAKS_ENABLE_SUMMARY: "true"
+          GITLEAKS_BASELINE_PATH: .gitleaks/baseline.json
+
+  osv-scanner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Install osv-scanner from the upstream release binary.
+      # `--recursive` walks the workspace and finds backend/, quill-agent/,
+      # shared/ lockfiles via the root package-lock.json.
+      - name: Install osv-scanner
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
+            -o osv-scanner
+          chmod +x osv-scanner
+          ./osv-scanner --version
+
+      - name: Run osv-scanner
+        # osv-scanner v2 removed --skip-git (skipping submodules is the
+        # default now). --recursive still works for walking subpaths.
+        run: ./osv-scanner --recursive ./
+
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run semgrep CI
+        env:
+          SEMGREP_RULES: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/javascript
+            p/typescript
+            p/nodejsscan
+        run: semgrep ci --config=auto
