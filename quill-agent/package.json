@@ -1,6 +1,6 @@
 {
   "name": "quill-agent",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -12,7 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@quill/shared": "^1.0.0",
+    "@quill/shared": "^0.1.0",
     "axios": "^1.13.6",
     "dotenv": "^17.3.1"
   },

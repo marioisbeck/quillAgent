@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-29
+
+First versioned release. quillAgent is now a Quill-side backend that
+serves the approval queue, persists audit logs, gates the loopkind
+review surface, and fans new cards out as web-push notifications to
+installed devices.
+
 ### Added
 
 - `DELETE /api/approvals` collection endpoint that wipes every
@@ -49,5 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New approvals now fan out web-push notifications to registered loopkind
   devices whenever VAPID keys are configured.
 
-[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.0.0...HEAD
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/marioisbeck/quillAgent/compare/v0.0.0...v0.1.0
 [0.0.0]: https://github.com/marioisbeck/quillAgent/releases/tag/v0.0.0

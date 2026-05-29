@@ -412,7 +412,16 @@ def main() -> int:
             },
             method="POST",
         )
+        # `endpoint` is built from the operator-supplied `--backend` CLI arg
+        # (default `http://127.0.0.1:3001`), not from user input. This is an
+        # operator-run demo-seeding script invoked manually with SSH access
+        # to the box already; if you pass `--backend file:///…` to your own
+        # script, that's your prerogative, not a vulnerability. The semgrep
+        # rule is overly broad for non-server-context scripts. Suppression must
+        # sit on the line immediately above the trigger (semgrep ignores the
+        # directive otherwise).
         try:
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urllib.request.urlopen(request, timeout=10) as response:
                 body = json.loads(response.read().decode("utf-8"))
             print(
