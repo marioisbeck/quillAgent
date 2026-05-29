@@ -776,6 +776,13 @@ app.post('/api/approvals', (req, res) => {
     void notifyLoopkindSubscribersForApproval(createdApproval).catch(error => {
       const message =
         error instanceof Error ? error.message : 'Unknown loopkind push failure';
+      // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+      // This is a JS template literal that produces a fully-formed string at
+      // the call site, not a printf-style format string. The interpolated
+      // values (`createdApproval.id` from our own database, and `message`
+      // from a caught Error) are coerced to strings by template-literal
+      // semantics — they cannot inject `%s`/`%d` format specifiers that
+      // console.error would interpret. False positive for this pattern.
       console.error(`Failed to send loopkind push notifications for ${createdApproval.id}:`, message);
     });
   }

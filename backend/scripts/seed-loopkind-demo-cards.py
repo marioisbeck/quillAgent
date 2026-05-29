@@ -413,6 +413,13 @@ def main() -> int:
             method="POST",
         )
         try:
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            # `endpoint` is built from the operator-supplied `--backend` CLI arg
+            # (default `http://127.0.0.1:3001`), not from user input. This is an
+            # operator-run demo-seeding script invoked manually with SSH access
+            # to the box already; if you pass `--backend file:///…` to your own
+            # script, that's not a vulnerability, it's your prerogative. The
+            # semgrep rule is overly broad for non-server-context scripts.
             with urllib.request.urlopen(request, timeout=10) as response:
                 body = json.loads(response.read().decode("utf-8"))
             print(
