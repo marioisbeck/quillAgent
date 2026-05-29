@@ -30,9 +30,11 @@ export class QuillTools {
     while (status === 'pending') {
       await new Promise(resolve => setTimeout(resolve, 3000));
       try {
-        const response = await axios.get(`${this.apiUrl}/approvals/${approvalId}`);
+        const response = await axios.get<ApprovalRequest>(`${this.apiUrl}/approvals/${approvalId}`);
         approval = response.data;
-        status = approval.status;
+        if (approval) {
+          status = approval.status;
+        }
       } catch (error) {
         console.error('Error checking approval status:', error);
       }
