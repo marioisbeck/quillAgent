@@ -30,7 +30,7 @@ This document tracks the implementation status of the entire Prometheon Core (Qu
 - [x] Scaffold basic agent structure
 - [x] Define system prompts (e.g., ElevenLabs prompt)
 - [ ] **Implement:** Google Workspace (`gog`) access. The agent currently lacks the ability to read Gmail/Calendar.
-- [ ] **Implement:** Custom Notion "Ultimate Brain" skill (or integrate via `n8n-mcp`).
+- [x] **Implement:** Ultimate Brain Notion bridge on the gateway — `quillServer/skills/quill-notion/` + `quillServer/scripts/quill_notion_bridge.py` (optional: `n8n-mcp` for cross-system automation remains separate).
 - [ ] **Verify:** Can the agent successfully trigger an `outbound-call` via ElevenLabs/Twilio? (Note: ElevenLabs and Twilio are reported as working, but need full integration test).
 - [ ] **Verify:** Can the agent read local files on the Hetzner server?
 
