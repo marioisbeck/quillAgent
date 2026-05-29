@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-29
+
+### Changed
+
+- Upgraded TypeScript `5.9.3 → 6.0.3` across the `backend`, `quill-agent`,
+  and `shared` workspaces (dependabot). Also took `actions/checkout@v6`
+  and the npm minor-patch group (6 updates).
+
+### Fixed
+
+- `quill-agent/src/tools.ts` — `waitForApproval` read `approval.status`
+  on a value typed `ApprovalRequest | null`, which TypeScript 6's
+  stricter narrowing correctly flagged. Typed the `axios.get` response
+  and guarded the status read so a null/transient poll response keeps
+  the loop in `pending` instead of risking a runtime crash. All three
+  workspaces pass `tsc --noEmit`.
+
 ## [0.1.0] - 2026-05-29
 
 First versioned release. quillAgent is now a Quill-side backend that
@@ -56,6 +73,7 @@ installed devices.
 - New approvals now fan out web-push notifications to registered loopkind
   devices whenever VAPID keys are configured.
 
-[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/marioisbeck/quillAgent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/marioisbeck/quillAgent/compare/v0.0.0...v0.1.0
 [0.0.0]: https://github.com/marioisbeck/quillAgent/releases/tag/v0.0.0
