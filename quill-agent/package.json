@@ -13,12 +13,12 @@
   "license": "ISC",
   "dependencies": {
     "@quill/shared": "^0.2.0",
-    "axios": "^1.16.1",
+    "axios": "^1.17.0",
     "dotenv": "^17.4.2"
   },
   "type": "module",
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^25.9.2",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
   }
