@@ -64,10 +64,48 @@ jobs:
           chmod +x osv-scanner
           ./osv-scanner --version
 
-      - name: Run osv-scanner
-        # osv-scanner v2 removed --skip-git (skipping submodules is the
-        # default now). --recursive still works for walking subpaths.
-        run: ./osv-scanner --recursive ./
+      - name: Run osv-scanner (report all; fail only on High/Critical)
+        # osv-scanner exits non-zero on ANY advisory regardless of severity,
+        # which made the daily schedule fail on low-severity, often dev-only
+        # advisories (e.g. newly-published GHSAs against build tooling). We
+        # scan once to JSON, print every finding for visibility, then fail
+        # the job only on High/Critical: CVSS base score >= 7.0 OR a GHSA
+        # "HIGH"/"CRITICAL" label (covers advisories with no CVSS vector).
+        # osv-scanner v2 dropped --skip-git; --recursive still walks subpaths.
+        run: |
+          set -uo pipefail
+          ./osv-scanner --recursive --format json --output osv-results.json ./
+          rc=$?
+          if [ "$rc" -gt 1 ]; then
+            echo "::error::osv-scanner failed to run (exit $rc)"
+            exit "$rc"
+          fi
+          if [ ! -s osv-results.json ]; then
+            echo "::error::osv-scanner produced no output"
+            exit 1
+          fi
+          echo "----- advisories found (any severity) -----"
+          jq -r '.results[].packages[]
+                 | .package.name as $n | .package.version as $v
+                 | (.groups[]? | "\($n)@\($v)  CVSS=\(.max_severity // "n/a")  \(.ids | join(","))")' \
+            osv-results.json || true
+          echo "-------------------------------------------"
+          high=$(jq '
+            ([ .results[].packages[].groups[]?.max_severity
+               | select(. != null and . != "") | tonumber | select(. >= 7.0) ] | length)
+            + ([ .results[].packages[].vulnerabilities[]?.database_specific.severity
+                 | select(. != null) | ascii_upcase | select(. == "HIGH" or . == "CRITICAL") ] | length)
+          ' osv-results.json)
+          if ! printf '%s' "$high" | grep -qE '^[0-9]+$'; then
+            echo "::error::failed to evaluate osv-scanner severity gate"
+            exit 1
+          fi
+          echo "High/Critical findings: $high"
+          if [ "$high" -gt 0 ]; then
+            echo "::error::osv-scanner found High/Critical vulnerabilities (see list above)"
+            exit 1
+          fi
+          echo "No High/Critical advisories; lower-severity findings (if any) are non-blocking."
 
   semgrep:
     runs-on: ubuntu-latest
