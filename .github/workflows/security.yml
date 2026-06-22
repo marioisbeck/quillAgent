@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out repository (full history for git-history scan)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -51,7 +51,7 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Install osv-scanner from the upstream release binary.
       # `--recursive` walks the workspace and finds backend/, quill-agent/,
@@ -115,7 +115,7 @@ jobs:
       image: semgrep/semgrep:latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run semgrep CI
         env:
