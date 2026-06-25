@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-26
+
+### Removed
+
+- Retired the **myvoice** scrapbook project and every reference to it.
+  Deleted the dedicated integration spec and prompt
+  (`specs/08-myvoice-integration.md`, `prompts/08-myvoice-integration.md`)
+  and stripped myvoice from the README related-projects list, the
+  `specs/01-architecture.md` ecosystem context, the `00-generate-system`
+  step sequence, the prompts index, and the `TODO.md` integrations
+  section. The `myvoice` repo is removed locally; its GitHub remote is
+  kept as a recoverable backup. Companion reference removals landed in
+  `quillServer` and `ultimateBrain`.
+
 ## [0.2.0] - 2026-05-29
 
 ### Changed
@@ -73,7 +87,8 @@ installed devices.
 - New approvals now fan out web-push notifications to registered loopkind
   devices whenever VAPID keys are configured.
 
-[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/marioisbeck/quillAgent/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/marioisbeck/quillAgent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/marioisbeck/quillAgent/compare/v0.0.0...v0.1.0
 [0.0.0]: https://github.com/marioisbeck/quillAgent/releases/tag/v0.0.0
