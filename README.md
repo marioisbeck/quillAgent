@@ -18,4 +18,3 @@ Main repository for Quill, a personal, sovereign AI system powered by OpenClaw. 
 
 - [ultimateBrain](../ultimateBrain/README.md): Personal notes, outlines, and small tools for capturing how life and work fit together. (Notion Project: `ultimateBrain`, Tag: `toolsAndUtilities`)
 - [quillServer](../quillServer/README.md): OpenClaw installation and configuration on Hetzner Cloud. (Notion Project: `quillServer`, Tag: `prometheon`)
-- [myvoice](../myvoice/README.md): A digital scrapbook with AI-generated voiceover and auto-scroll. (Notion Project: `myvoice`, Tag: `felien`)
