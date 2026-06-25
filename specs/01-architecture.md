@@ -37,7 +37,6 @@ Help design a practical sovereign AI system centered around OpenClaw.
 Quill does not exist in a vacuum. It is part of a broader personal workspace:
 - **`ultimateBrain`**: The data layer (Notion/Drive) that Quill reads from and writes to. Quill is the active agent for this passive knowledge base.
 - **`quillServer`**: The underlying secure runtime, sandboxing, and governance layer that powers Quill.
-- **`myvoice`**: A digital scrapbook application. Quill may eventually help curate or generate content for MyVoice.
 
 IMPORTANT ARCHITECTURAL PRINCIPLE:
 OpenClaw must remain the brain.
