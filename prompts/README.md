@@ -16,4 +16,3 @@ You can copy the entire content of any `.md` file in this directory and paste it
 | [05-implementation-starter.md](05-implementation-starter.md) | `specs/05-implementation-starter.md` | **Agent** |
 | [06-simplification-pass.md](06-simplification-pass.md) | `specs/06-simplification-pass.md` | **Plan** |
 | [07-code-quality-pass.md](07-code-quality-pass.md) | `specs/07-code-quality-pass.md` | **Agent** |
-| [08-myvoice-integration.md](08-myvoice-integration.md) | `specs/08-myvoice-integration.md` | **Plan** |

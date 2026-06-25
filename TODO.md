@@ -43,8 +43,5 @@ This document tracks the implementation status of the entire Prometheon Core (Qu
 - [ ] **Evaluate `mempalace` for Quill memory**: Determine whether `mempalace` would help as a long-term memory and retrieval layer for Telegram topics, daily notes, and agent context recall. Compare it against the planned two-tier memory design and define the smallest useful prototype before committing to adoption.
 - [ ] **Autoresearch (Stretch):** Build the Andrej Karpathy-style deep dive research agent.
 
-## 6. Integrations (`ultimateBrain` & `myvoice`)
+## 6. Integrations (`ultimateBrain`)
 - [x] Align Notion databases to the `prometheon` / `ultimateBrain` ontology.
-- [ ] **MyVoice:** Set up the local voice cloning pipeline (Coqui TTS / XTTSv2).
-- [ ] **MyVoice:** Build the API wrapper so Quill can generate audio files for the scrapbook.
-- [ ] **MyVoice:** Define the approval gate: Quill drafts a memory -> Sentry approves -> Commits to Astro repo.
