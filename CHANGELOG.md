@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dependency maintenance (Dependabot):** npm minor/patch group — 3 updates
+  (#20); `actions/checkout` 6 → 7 (#19); `gitleaks/gitleaks-action` 2 → 3 (#14).
+
 ### Fixed
 
 - **Daily `security` workflow no longer emails on pre-existing findings** — the
