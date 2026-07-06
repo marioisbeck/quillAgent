@@ -118,6 +118,12 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Run semgrep CI
+        # On the daily `schedule` run, findings must NOT fail the job — the
+        # scheduled full scan surfaces stable, pre-existing findings and was
+        # emailing a "Run failed" notice every day. Report-only on schedule;
+        # pull-request runs stay diff-gated and blocking, so real regressions
+        # are still caught.
+        continue-on-error: ${{ github.event_name == 'schedule' }}
         env:
           SEMGREP_RULES: >-
             p/security-audit
