@@ -74,8 +74,10 @@ jobs:
         # osv-scanner v2 dropped --skip-git; --recursive still walks subpaths.
         run: |
           set -uo pipefail
-          ./osv-scanner --recursive --format json --output osv-results.json ./
-          rc=$?
+          # Actions invokes bash with -e; keep the scanner in an OR-list so
+          # exit 1 reaches the explicit severity gate below.
+          rc=0
+          ./osv-scanner --recursive --format json --output osv-results.json ./ || rc=$?
           if [ "$rc" -gt 1 ]; then
             echo "::error::osv-scanner failed to run (exit $rc)"
             exit "$rc"
