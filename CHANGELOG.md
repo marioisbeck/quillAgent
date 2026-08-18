@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **README and TODO catch-up** — README now names loopkind (not Sentry) as the review surface and matches the current `backend` / `shared` / `quill-agent` layout. `TODO.md` is the Gitflow Now/Next/Later/Done backlog; shipped control-plane work is archived rather than left as open checkboxes.
+- **Renamed `specs/04-sentry-app.md` and `prompts/04-sentry-app.md`** to `04-loopkind-app.md`. Prompt index and generate-system/quality-pass prompts now point at sibling `loopkind` instead of a non-existent `sentry/` folder.
+- **Package versions aligned to `0.2.2`** in the workspace `package.json` files (the git tag already existed; the manifests had lagged at `0.2.1`).
+- **Dependency maintenance:** `better-sqlite3` 12.11.1 → 13.0.3 ([#33](https://github.com/marioisbeck/quillAgent/pull/33)); `@types/node` 26.1.2 → 26.2.0 and `tsx` 4.23.10 → 4.23.12 ([#34](https://github.com/marioisbeck/quillAgent/pull/34)). Rebuild the native addon on the gateway after deploy.
+
 ## [0.2.2] - 2026-07-06
 
 ### Changed
