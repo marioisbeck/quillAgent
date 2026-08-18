@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -14,7 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "@quill/shared": "^0.2.0",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
@@ -27,11 +27,11 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.2.0",
     "@types/web-push": "^3.6.4",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
-    "tsx": "^4.23.10",
+    "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   },
   "type": "module"
