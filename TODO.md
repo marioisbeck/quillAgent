@@ -106,6 +106,10 @@ _None._ Pick from Later, or a new item.
 
 ## Done
 
+### 2026-08-19 — quillAgent v0.2.3
+
+Cut `release--v0.2.3` from `develop`, tagged `v0.2.3` on `main`. Docs/loopkind rename, TypeScript 7, `better-sqlite3` 13, shared `rootDir` fix, and the post-`v0.2.2` security advisory clear.
+
 ### 2026-08-18 — Next items 1–3
 
 - Merged Dependabot [#34](https://github.com/marioisbeck/quillAgent/pull/34) then [#33](https://github.com/marioisbeck/quillAgent/pull/33) into `develop` (retargeted off `main` first). `npm run build -w shared` and `npm run build -w backend` green locally. Rebuild `better-sqlite3` on the gateway at next deploy.

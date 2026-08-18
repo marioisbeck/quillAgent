@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-19
+
 ### Changed
 
 - **README and TODO catch-up** — README now names loopkind (not Sentry) as the review surface and matches the current `backend` / `shared` / `quill-agent` layout. `TODO.md` is the Gitflow Now/Next/Later/Done backlog; shipped control-plane work is archived rather than left as open checkboxes.
 - **Renamed `specs/04-sentry-app.md` and `prompts/04-sentry-app.md`** to `04-loopkind-app.md`. Prompt index and generate-system/quality-pass prompts now point at sibling `loopkind` instead of a non-existent `sentry/` folder.
-- **Package versions aligned to `0.2.2`** in the workspace `package.json` files (the git tag already existed; the manifests had lagged at `0.2.1`).
-- **Dependency maintenance:** `better-sqlite3` 12.11.1 → 13.0.3 ([#33](https://github.com/marioisbeck/quillAgent/pull/33)); `@types/node` 26.1.2 → 26.2.0 and `tsx` 4.23.10 → 4.23.12 ([#34](https://github.com/marioisbeck/quillAgent/pull/34)). Rebuild the native addon on the gateway after deploy.
+- **TypeScript 7 and dependency maintenance** — TypeScript `6.0.3 → 7.0.2` across all workspaces, `@types/node` 25 → 26, plus `express-rate-limit`, `helmet`, `tsx`, and `axios` ([#32](https://github.com/marioisbeck/quillAgent/pull/32)). Follow-up: `better-sqlite3` 12.11.1 → 13.0.3 ([#33](https://github.com/marioisbeck/quillAgent/pull/33)); `@types/node` 26.1.2 → 26.2.0 and `tsx` 4.23.10 → 4.23.12 ([#34](https://github.com/marioisbeck/quillAgent/pull/34)). Rebuild the native addon on the gateway after deploy.
+
+### Fixed
+
+- **`@quill/shared` rebuild from a clean clone** — set explicit `rootDir: "./src"` so `npm run build -w shared` works under TypeScript 6/7 (`declaration` + `outDir` no longer infers it) ([#31](https://github.com/marioisbeck/quillAgent/pull/31)).
+
+### Security
+
+- **Cleared dependency advisories** in the lockfile and tightened the security workflow ([#30](https://github.com/marioisbeck/quillAgent/pull/30)).
 
 ## [0.2.2] - 2026-07-06
 
@@ -110,7 +119,8 @@ installed devices.
 - New approvals now fan out web-push notifications to registered loopkind
   devices whenever VAPID keys are configured.
 
-[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/marioisbeck/quillAgent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/marioisbeck/quillAgent/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/marioisbeck/quillAgent/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/marioisbeck/quillAgent/compare/v0.1.0...v0.2.0
