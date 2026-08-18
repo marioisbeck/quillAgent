@@ -1,4 +1,6 @@
-> **Cursor:** Run [`prompts/04-sentry-app.md`](../prompts/04-sentry-app.md) in **Plan** mode. Spec body below.
+> **Historical note (2026-08-18):** This file was `specs/04-sentry-app.md`. The review surface it calls **Sentry** shipped as the sibling repo **loopkind**. Do not scaffold a `sentry/` app in this tree. Keep reading for the original product thesis; implement against `../loopkind` and `backend/` instead.
+>
+> **Cursor:** Run [`prompts/04-loopkind-app.md`](../prompts/04-loopkind-app.md) in **Plan** mode. Spec body below.
 
 Important architectural rule:
 OpenClaw is the brain.
