@@ -52,7 +52,7 @@ There is **no test runner, no linter, and no root `build` script** configured. `
 
 **TypeScript version split (important):** each workspace's local TypeScript is **6.0.3**, but root `npx tsc` resolves to a hoisted **5.9.3**. Always typecheck/build *inside* the workspace (or via `npm run … -w <pkg>`) so you exercise the 6.0.3 narrowing the code is written against, not root's 5.9.3.
 
-**Known break — `npm run build -w shared` currently fails** under TS 6.0.3 with `TS5011` because `shared/tsconfig.json` sets `declaration: true` + `outDir` without an explicit `rootDir`. `shared/dist/` already exists from an earlier build, so backend/quill-agent still resolve `@quill/shared` and typecheck fine; only a fresh emit of `shared` breaks. The fix is to add `"rootDir": "./src"` to `shared/tsconfig.json` (do this if you need to rebuild `shared`). `backend` and `quill-agent` emit builds work as-is.
+**`shared` builds cleanly.** This section previously described a `TS5011` failure from `declaration: true` + `outDir` without `rootDir`. That was fixed on `hotfix--shared-rootdir`; `shared/tsconfig.json` sets `"rootDir": "./src"` and a fresh emit succeeds (verified 2026-08-19). The warning outlived the bug.
 
 ## Backend specifics
 
