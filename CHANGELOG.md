@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Repository guidance now reaches Codex and Cursor, not just Claude Code.**
+  `CLAUDE.md` is renamed to `AGENTS.md`, with `CLAUDE.md` kept as a symlink to it.
+  Codex and Cursor read `AGENTS.md` natively and previously found no guidance in
+  this repo at all; Claude Code does not read `AGENTS.md` and continues to load the
+  file through the symlink. Edit `AGENTS.md`; the symlink is a compatibility shim.
+
 ## [0.2.3] - 2026-08-19
 
 ### Changed
