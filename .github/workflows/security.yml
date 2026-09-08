@@ -126,12 +126,9 @@ jobs:
         # pull-request runs stay diff-gated and blocking, so real regressions
         # are still caught.
         continue-on-error: ${{ github.event_name == 'schedule' }}
-        env:
-          SEMGREP_RULES: >-
-            p/security-audit
-            p/secrets
-            p/owasp-top-ten
-            p/javascript
-            p/typescript
-            p/nodejsscan
+        # SEMGREP_RULES is deliberately NOT set here: `--config=auto` below
+        # OVERRIDES that env var, so the packs previously listed were never
+        # actually applied. quillServer found this and dropped the dead
+        # config; propagating the fix instead of carrying settings that
+        # do nothing.
         run: semgrep ci --config=auto

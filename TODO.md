@@ -42,6 +42,31 @@ _None._
 
 _None._ Pick from Later, or a new item.
 
+### 7. Backend runs as two deployments
+
+**Area:** infra
+**Queue:** later
+**Added:** 2026-08-25
+
+The Prometheon operator (`prometheonai/prometheon_operator`) runs a second
+deployment of `backend/` on the gtm-ops host: its own SQLite database, its own
+`QUILL_API_KEY`, its own loopkind instance. No code change was needed, it is
+config-driven, and this entry exists so the topology is not rediscovered later.
+
+Two things to keep true when touching `backend/`:
+
+- Do not assume a single database or a single API key. Anything that hardcodes
+  a path or reads a global now affects two businesses.
+- `ApprovalRequest.connector` is already an arbitrary string, which is what
+  lets the operator file `mail` cards into its own instance without a schema
+  change. Keep it open.
+
+**Prompt for next session:** If `backend/` grows per-tenant behaviour, prefer
+env-driven config over a second code path. The operator must stay a deployment,
+not a fork.
+
+---
+
 ## Later
 
 ### 1. Berman Phase 1 — n8n-mcp

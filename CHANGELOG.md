@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-08
+
+### Changed
+
+- **Dependency bumps:** `express-rate-limit` 8.6.2 → 8.7.0,
+  `@types/better-sqlite3` 7.6.13 → 9.6.0, `@types/node` 26.2.0 → 26.4.1,
+  `tsx` 4.23.12 → 4.23.13. The types major closes part of a six-major gap
+  against the `better-sqlite3` 13.x runtime the backend actually uses; `tsc`
+  is clean before and after it.
+
+- **Repository guidance now reaches Codex and Cursor, not just Claude Code.**
+  `CLAUDE.md` is renamed to `AGENTS.md`, with `CLAUDE.md` kept as a symlink to it.
+  Codex and Cursor read `AGENTS.md` natively and previously found no guidance in
+  this repo at all; Claude Code does not read `AGENTS.md` and continues to load the
+  file through the symlink. Edit `AGENTS.md`; the symlink is a compatibility shim.
+
+### Fixed
+
+- **Pushing `develop` or `main` from this repo no longer fails outright.** The
+  pre-push hook called the sibling sync script by a name that no longer exists
+  (`sync_runbooks_to_openclaw.py` became `sync_runbooks_to_gateway.py` when the
+  mirror learned to follow the active gateway runtime), and a missing sibling
+  checkout was treated as an error rather than as "nothing to do" — so the hook
+  aborted every push instead of standing aside. It now calls the right script
+  and skips cleanly when it cannot know what to do; only a sync that actually
+  ran and failed stops a push.
+
+- **Dependency bumps no longer aim at `main`.** `.github/dependabot.yml` set no
+  `target-branch`, so Dependabot used the repo default (`main`). Merging one put
+  a commit on `main` that never flowed back to `develop` — exactly the
+  divergence Gitflow exists to prevent, and the reason several bump PRs sat open
+  rather than being merged. Every ecosystem entry now targets `develop`.
+
 ## [0.2.3] - 2026-08-19
 
 ### Changed
@@ -119,7 +152,8 @@ installed devices.
 - New approvals now fan out web-push notifications to registered loopkind
   devices whenever VAPID keys are configured.
 
-[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/marioisbeck/quillAgent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/marioisbeck/quillAgent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/marioisbeck/quillAgent/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/marioisbeck/quillAgent/compare/v0.2.0...v0.2.1

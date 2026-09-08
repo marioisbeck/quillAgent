@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pre-push hook: mirror runbook markdown into OpenClaw memory whenever
-# develop/main is being published from quillAgent.
+# Pre-push hook: mirror runbook markdown to whichever agent runtime is live
+# on the gateway whenever develop/main is being published from quillAgent.
 #
 # quillAgent contributes the `specs/` tree to the consolidated
 # runbook index that lives on the gateway. The actual sync script
@@ -42,16 +42,16 @@ if [[ "$should_sync" -eq 0 ]]; then
 fi
 
 repo_root="$(git rev-parse --show-toplevel)"
-sibling_script="$repo_root/../quillServer/scripts/sync_runbooks_to_openclaw.py"
+sibling_script="$repo_root/../quillServer/scripts/sync_runbooks_to_gateway.py"
 
 if [[ ! -f "$sibling_script" ]]; then
-  echo "[pre-push] sibling sync script not found at $sibling_script" >&2
-  echo "[pre-push] is quillServer/ checked out next to quillAgent/?" >&2
-  echo "[pre-push] skip with: QUILL_SKIP_RUNBOOK_SYNC=1 git push ..." >&2
-  exit 1
+  echo "[pre-push] no sibling quillServer/ checkout — skipping runbook sync." >&2
+  echo "[pre-push]   looked for: $sibling_script" >&2
+  echo "[pre-push] specs/ will be mirrored by the next push from a full workspace." >&2
+  exit 0
 fi
 
-echo "[pre-push] syncing runbooks to OpenClaw memory (via quillServer)…" >&2
+echo "[pre-push] syncing runbooks to the active gateway runtime (via quillServer)…" >&2
 if ! python3 "$sibling_script" --apply; then
   echo "" >&2
   echo "[pre-push] runbook sync failed. Push aborted." >&2
