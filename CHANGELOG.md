@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this repo at all; Claude Code does not read `AGENTS.md` and continues to load the
   file through the symlink. Edit `AGENTS.md`; the symlink is a compatibility shim.
 
+### Fixed
+
+- **Dependency bumps no longer aim at `main`.** `.github/dependabot.yml` set no
+  `target-branch`, so Dependabot used the repo default (`main`). Merging one put
+  a commit on `main` that never flowed back to `develop` — exactly the
+  divergence Gitflow exists to prevent, and the reason several bump PRs sat open
+  rather than being merged. Every ecosystem entry now targets `develop`.
+
 ## [0.2.3] - 2026-08-19
 
 ### Changed
