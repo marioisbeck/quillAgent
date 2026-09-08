@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-08
+
 ### Changed
+
+- **Dependency bumps:** `express-rate-limit` 8.6.2 → 8.7.0,
+  `@types/better-sqlite3` 7.6.13 → 9.6.0, `@types/node` 26.2.0 → 26.4.1,
+  `tsx` 4.23.12 → 4.23.13. The types major closes part of a six-major gap
+  against the `better-sqlite3` 13.x runtime the backend actually uses; `tsc`
+  is clean before and after it.
 
 - **Repository guidance now reaches Codex and Cursor, not just Claude Code.**
   `CLAUDE.md` is renamed to `AGENTS.md`, with `CLAUDE.md` kept as a symlink to it.
@@ -144,7 +152,8 @@ installed devices.
 - New approvals now fan out web-push notifications to registered loopkind
   devices whenever VAPID keys are configured.
 
-[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/marioisbeck/quillAgent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/marioisbeck/quillAgent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/marioisbeck/quillAgent/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/marioisbeck/quillAgent/compare/v0.2.0...v0.2.1
