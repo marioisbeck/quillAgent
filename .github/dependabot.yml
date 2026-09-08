@@ -6,6 +6,11 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
+    # Bumps integrate through develop like any other change. Without this
+    # Dependabot targets the repo default branch (main), and merging one
+    # puts a commit on main that never flows back to develop -- the
+    # divergence Gitflow exists to prevent.
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -28,6 +33,11 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    # Bumps integrate through develop like any other change. Without this
+    # Dependabot targets the repo default branch (main), and merging one
+    # puts a commit on main that never flows back to develop -- the
+    # divergence Gitflow exists to prevent.
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
