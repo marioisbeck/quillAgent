@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pushing `develop` or `main` from this repo no longer fails outright.** The
+  pre-push hook called the sibling sync script by a name that no longer exists
+  (`sync_runbooks_to_openclaw.py` became `sync_runbooks_to_gateway.py` when the
+  mirror learned to follow the active gateway runtime), and a missing sibling
+  checkout was treated as an error rather than as "nothing to do" — so the hook
+  aborted every push instead of standing aside. It now calls the right script
+  and skips cleanly when it cannot know what to do; only a sync that actually
+  ran and failed stops a push.
+
 - **Dependency bumps no longer aim at `main`.** `.github/dependabot.yml` set no
   `target-branch`, so Dependabot used the repo default (`main`). Merging one put
   a commit on `main` that never flowed back to `develop` — exactly the
