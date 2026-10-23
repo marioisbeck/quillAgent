@@ -72,3 +72,49 @@ Please also define a minimal v1 API with endpoints such as:
 Keep the backend thin, practical, and startup-sized.
 Prefer FastAPI or Node/TypeScript, and recommend the better option.
 Do not overengineer.
+
+
+## Implemented lifecycle retention contract (2026-10-23)
+
+This is approval/receipt storage only; the gateway and Mac own execution and
+Telegram transport. The backend does not launch, resume, schedule or reason.
+
+Additive migration v1 (`quill_schema_migrations`) enrolls existing version-1
+lifecycle cards in `lifecycle_retention` with their original context. New cards
+enroll on creation. No legacy approval/audit data is dropped. Context/connector/
+local approval identity cannot be changed through manual edits after enrollment.
+Missing or invalid signed context stays retained for operator reconciliation.
+
+Single and bulk history DELETE preserve the pending guard. Nonpending enrolled
+cards become hidden immediately and disappear from ordinary GET /api/approvals.
+They remain addressable by ID and execution PATCH; cleanup never re-exposes them
+in UI history. Ordinary legacy cards without a version-1 lifecycle keep their
+previous physical deletion behavior.
+
+Authenticated consumer paths (same mandatory x-quill-api-key middleware):
+
+- `GET /api/lifecycle/approvals?limit=200&after=<id>` returns
+  `{approvals,nextCursor}` in ID order; maximum page size 500. Includes hidden
+  retained cards and a server-derived `feedbackGeneration` for each snapshot.
+- `GET /api/lifecycle/execution?connector=...&status=...&executionStatus=pending&limit=20`
+  returns the same list contract as the ordinary approval list, including hidden
+  required work. An explicit connector and limit 1..500 are mandatory.
+- `POST /api/approvals/:id/feedback` accepts
+  `{generation,contextSignature,phase,messageId}` only for a confirmed Telegram
+  message. The generation is a canonical hash of current decision, immutable
+  lifecycle context and execution report. It is never a caller-selected route.
+  The backend verifies the original context HMAC and identity, current phase,
+  generation and prior approved receipt before accepting terminal settlement.
+  A repeated identical receipt succeeds, including after card purge; a different
+  message, phase, signature or generation conflicts. Compact receipt identities
+  remain for idempotent acknowledgement after a lost response.
+
+Purge requires an authoritative terminal execution report plus approved/final
+feedback receipts (or a consistent rejection and its receipt). A launcher exit,
+job ID, dispatch-active result, administrative timeout sweep, unknown/incomplete
+result or contradictory reversal cannot authorize purge. Pending expired cards
+remain guarded; changes_requested/continuous_improvement and ambiguous old cards
+are held. Telegram timeout/unknown sends have no confirmed receipt. No human
+history cleanup may treat them as delivered. Full delivery semantics live in
+`quillServer/setup/loopkind-lifecycle.md`; the observer retries receipt writes
+without sending again, invoking approvals or replaying actions.

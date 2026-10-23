@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Retain hidden Loopkind lifecycle cards and audit until the actual operation ends and exact-route Telegram feedback is durably confirmed. History cleanup keeps pending-card guards and legacy behavior; authenticated consumers can still finish hidden work.
+
 ## [0.2.4] - 2026-09-08
 
 ### Changed
