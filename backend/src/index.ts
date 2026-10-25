@@ -748,6 +748,13 @@ const generation = (card: ApprovalRequest): string => crypto.createHash('sha256'
   executionStatus: card.payload.details?.executionStatus, executedAt: card.payload.details?.executedAt,
   executionResult: card.payload.details?.executionResult, executionError: card.payload.details?.executionError,
 })).digest('hex');
+// Desktop jobs report in Loopkind itself; they have no Telegram destination.
+const desktopLifecycle = (ctx: any): boolean => isRecord(ctx) && ctx.connector === 'laptop'
+  && isRecord(ctx.origin) && Object.keys(ctx.origin).sort().join(',') === 'channel,host,requestId'
+  && ctx.origin.channel === 'desktop' && typeof ctx.origin.host === 'string'
+  && /^[A-Za-z0-9_.:-]{1,255}$/.test(ctx.origin.host) && ctx.host === ctx.origin.host
+  && typeof ctx.origin.requestId === 'string' && /^[a-f0-9]{32}$/.test(ctx.origin.requestId)
+  && typeof ctx.attemptId === 'string' && /^[a-f0-9]{32}$/.test(ctx.attemptId);
 const verifiedLifecycle = (card: ApprovalRequest): boolean => {
   const ctx = card.payload.details?.lifecycle;
   const saved = retention(card.id);
@@ -758,9 +765,9 @@ const verifiedLifecycle = (card: ApprovalRequest): boolean => {
   const expected = crypto.createHmac('sha256', rawQuillApiKey).update(stableWire(unsigned)).digest('hex');
   const origin = ctx.origin;
   return /^[a-f0-9]{64}$/.test(signature) && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-    && isRecord(origin) && origin.channel === 'telegram' && typeof origin.accountId === 'string'
+    && (desktopLifecycle(ctx) || (isRecord(origin) && origin.channel === 'telegram' && typeof origin.accountId === 'string'
     && /^[A-Za-z0-9_.:-]{1,80}$/.test(origin.accountId) && /^-?[1-9][0-9]{0,19}$/.test(String(origin.chatId))
-    && /^[1-9][0-9]{0,10}$/.test(String(origin.topicId));
+    && /^[1-9][0-9]{0,10}$/.test(String(origin.topicId))));
 };
 // Conservative terminal receipt semantics; launcher success/unknown/reversal is held.
 const resultState = (value: any, depth = 0): 'completed' | 'failed' | 'unknown' => {
@@ -823,6 +830,7 @@ const purge = (id: string) => {
 const settled = (card: ApprovalRequest): boolean => {
   const phase = finalPhase(card);
   if (!phase || !verifiedLifecycle(card)) return false;
+  if (desktopLifecycle(card.payload.details?.lifecycle)) return true;
   const phases = card.status === 'approved' ? ['approved', phase] : [phase];
   return phases.every(p => db.prepare('SELECT 1 FROM lifecycle_feedback WHERE approval_id=? AND generation=? AND phase=?')
     .get(card.id, generation(card), p));
@@ -863,7 +871,8 @@ app.post('/api/approvals/:id/feedback', (req, res) => {
   }
   const card = parseApprovalRow(row);
   const terminal = finalPhase(card);
-  if (!verifiedLifecycle(card) || gen !== generation(card) || contextSignature !== card.payload.details?.lifecycle?.signature
+  if (!verifiedLifecycle(card) || desktopLifecycle(card.payload.details?.lifecycle)
+      || gen !== generation(card) || contextSignature !== card.payload.details?.lifecycle?.signature
       || (phase === 'approved' ? card.status !== 'approved' : phase !== terminal)
       || phase !== 'approved' && card.status === 'approved' && !db.prepare(`SELECT 1 FROM lifecycle_feedback WHERE approval_id=? AND generation=? AND phase='approved'`).get(id, gen)) {
     res.status(409).json({error: 'Feedback identity, phase or generation mismatch'}); return;
@@ -1102,7 +1111,9 @@ app.patch('/api/approvals/:id/execution', (req, res) => {
     db.prepare('UPDATE approvals SET payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(JSON.stringify(nextPayload), id);
     recordAuditEntry(id, approval.action, `Execution changed to ${executionStatus}${executionError ? ` with error: ${executionError}` : ''}`);
-    return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(getApprovalRow(id)!)}};
+    const updated = parseApprovalRow(getApprovalRow(id)!);
+    if (retention(id)?.hidden && desktopLifecycle(updated.payload.details?.lifecycle) && settled(updated)) purge(id);
+    return {code: 200, body: {success: true, executionGuardVersion: 1, approval: updated}};
   }).immediate();
   res.status(outcome.code).json(outcome.body);
 });
