@@ -292,6 +292,26 @@ migrateLegacyAuditLogTable();
 
 const generateId = () => crypto.randomUUID();
 
+// Additive, versioned retention migration. Existing approval/audit bytes stay intact.
+db.exec(`CREATE TABLE IF NOT EXISTS quill_schema_migrations (version INTEGER PRIMARY KEY);
+  CREATE TABLE IF NOT EXISTS lifecycle_retention (
+    approval_id TEXT PRIMARY KEY, context TEXT NOT NULL, hidden INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS lifecycle_feedback (
+    approval_id TEXT NOT NULL, generation TEXT NOT NULL, phase TEXT NOT NULL,
+    context_signature TEXT NOT NULL, message_id TEXT NOT NULL,
+    PRIMARY KEY (approval_id, generation, phase));`);
+if (!db.prepare('SELECT 1 FROM quill_schema_migrations WHERE version = 1').get()) {
+  db.transaction(() => {
+    const rows = db.prepare('SELECT id,payload FROM approvals').all() as {id: string; payload: string}[];
+    for (const row of rows) {
+      const context = JSON.parse(row.payload)?.details?.lifecycle;
+      if (context?.version === 1) db.prepare('INSERT OR IGNORE INTO lifecycle_retention (approval_id,context) VALUES (?,?)')
+        .run(row.id, JSON.stringify(context));
+    }
+    db.prepare('INSERT INTO quill_schema_migrations (version) VALUES (1)').run();
+  })();
+}
+
 type ApprovalRow = {
   id: string;
   action: string;
@@ -697,8 +717,170 @@ app.delete('/api/loopkind/push/subscriptions', (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/api/approvals', (req, res) => {
-  const rows = db.prepare('SELECT * FROM approvals ORDER BY created_at DESC').all() as ApprovalRow[];
+// Storage/receipt validation only: no execution, reasoning or provider routing here.
+const stableWire = (value: any): string => {
+  const text = Array.isArray(value) ? '[' + value.map(stableWire).join(',') + ']'
+    : isRecord(value) ? '{' + Object.keys(value).filter(k => value[k] !== undefined).sort()
+      .map(k => JSON.stringify(k) + ':' + stableWire(value[k])).join(',') + '}' : JSON.stringify(value);
+  return text.replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+};
+// Optional compare-and-claim for the gateway parity owner. This validates
+// approval metadata only; execution remains with the existing local bridge.
+const executionIdentity = (action: string, payload: ActionPayload) => ({
+  action, connector: payload.connector, kind: payload.details?.kind ?? null,
+  bridgeApprovalId: payload.details?.bridgeApprovalId ?? null,
+  resumeToken: payload.details?.resumeToken ?? null,
+});
+const validExecutionGuard = (guard: any, action: string, payload: ActionPayload): boolean =>
+  isRecord(guard) && guard.version === 1 && guard.owner === 'gateway_parity'
+  && typeof guard.token === 'string' && /^[a-f0-9]{32}$/.test(guard.token)
+  && String(payload.connector) === 'gateway' && action !== 'server_route_codex'
+  && payload.details?.kind !== 'server_codex'
+  && typeof payload.details?.bridgeApprovalId === 'string' && !!payload.details.bridgeApprovalId
+  && typeof payload.details?.resumeToken === 'string' && !!payload.details.resumeToken
+  && isRecord(guard.identity) && stableWire(guard.identity) === stableWire(executionIdentity(action, payload));
+const executionFields = ['executionClaim', 'executionStatus', 'executionResult', 'executionError', 'executedAt'];
+
+const retention = (id: string) => db.prepare('SELECT * FROM lifecycle_retention WHERE approval_id=?')
+  .get(id) as {context: string; hidden: number} | undefined;
+const generation = (card: ApprovalRequest): string => crypto.createHash('sha256').update(stableWire({
+  lifecycle: card.payload.details?.lifecycle, status: card.status,
+  executionStatus: card.payload.details?.executionStatus, executedAt: card.payload.details?.executedAt,
+  executionResult: card.payload.details?.executionResult, executionError: card.payload.details?.executionError,
+})).digest('hex');
+const verifiedLifecycle = (card: ApprovalRequest): boolean => {
+  const ctx = card.payload.details?.lifecycle;
+  const saved = retention(card.id);
+  if (!isRecord(ctx) || ctx.version !== 1 || !saved || stableWire(ctx) !== stableWire(JSON.parse(saved.context))
+      || ctx.bridgeApprovalId !== card.payload.details?.bridgeApprovalId
+      || ctx.connector && ctx.connector !== card.payload.connector || typeof ctx.signature !== 'string') return false;
+  const {signature, ...unsigned} = ctx;
+  const expected = crypto.createHmac('sha256', rawQuillApiKey).update(stableWire(unsigned)).digest('hex');
+  const origin = ctx.origin;
+  return /^[a-f0-9]{64}$/.test(signature) && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+    && isRecord(origin) && origin.channel === 'telegram' && typeof origin.accountId === 'string'
+    && /^[A-Za-z0-9_.:-]{1,80}$/.test(origin.accountId) && /^-?[1-9][0-9]{0,19}$/.test(String(origin.chatId))
+    && /^[1-9][0-9]{0,10}$/.test(String(origin.topicId));
+};
+// Conservative terminal receipt semantics; launcher success/unknown/reversal is held.
+const resultState = (value: any, depth = 0): 'completed' | 'failed' | 'unknown' => {
+  if (depth > 20 || !value || typeof value !== 'object') return 'unknown';
+  if (Array.isArray(value)) {
+    const states = value.map(v => resultState(v, depth + 1));
+    return states.includes('failed') ? 'failed' : states.includes('unknown') ? 'unknown' : 'completed';
+  }
+  let unknown = false;
+  if (value.ok === false || value.success === false || value.passed === false || value.error
+      || ['failed','error','denied','expired','cancelled'].includes(value.state)
+      || ['failed','error'].includes(value.status)) return 'failed';
+  if (value.detached === true || value.state === 'dispatched'
+      || (value.job_id || value.jobId) && !['completed','failed','done'].includes(value.state)
+      || ['pending','approved','queued','running','paused_for_approval'].includes(value.state)
+      || ['incomplete','pending','queued','running','awaiting_review','blocked'].includes(value.status)) unknown = true;
+  for (const [key, child] of Object.entries(value)) {
+    if (['exit_code','returncode','exitCode'].includes(key) && child != null && child !== 0) return 'failed';
+    if (['status','statusCode','status_code','httpStatus'].includes(key) && typeof child === 'number' && child >= 400) return 'failed';
+    let nested = child;
+    if (['stdout','output'].includes(key) && typeof child === 'string' && child.length < 65536) {
+      try { nested = JSON.parse(child); } catch { continue; }
+    }
+    if (nested && typeof nested === 'object' && !['request','origin','lifecycle'].includes(key)) {
+      const state = resultState(nested, depth + 1);
+      if (state === 'failed') return 'failed';
+      if (state === 'unknown') unknown = true;
+    }
+  }
+  return unknown ? 'unknown' : 'completed';
+};
+const finalPhase = (card: ApprovalRequest): string | undefined => {
+  const d = card.payload.details ?? {};
+  if (String(d.executionError ?? '').startsWith('Swept by quill_approvals_sweep.py:')) return;
+  if (card.status === 'rejected') {
+    if (![undefined, 'pending'].includes(d.executionStatus as any)
+        && !(d.executionStatus === 'failed' && (d.executionResult?.state === 'denied'
+          || String(d.executionError ?? '').startsWith('Rejected in loopkind;')))) return;
+    return 'rejected';
+  }
+  if (card.status !== 'approved') return;
+  if (d.executionStatus === 'failed') return 'failed';
+  if (d.executionStatus !== 'completed') return;
+  const state = resultState(d.executionResult);
+  if (state !== 'completed') return state === 'failed' ? 'failed' : undefined;
+  if (String(card.payload.connector) === 'laptop' && (d.lifecycle?.dispatchOnly || ['shell','cursor.chat','cursor_chat','cursor.prompt'].includes(d.operation))) {
+    const ref = d.executionResult?.completion_ref;
+    if (!(d.executionResult?.authoritative_completion === true && typeof d.lifecycle?.attemptId === 'string'
+      && ref?.host === d.lifecycle?.host && ref?.attemptId === d.lifecycle?.attemptId
+      && ref?.bridgeApprovalId === d.bridgeApprovalId && stableWire(ref?.origin) === stableWire(d.lifecycle?.origin))) return;
+  }
+  return 'completed';
+};
+const purge = (id: string) => {
+  db.prepare('DELETE FROM audit_log WHERE approval_id=?').run(id);
+  db.prepare('DELETE FROM approvals WHERE id=?').run(id);
+  db.prepare('DELETE FROM lifecycle_retention WHERE approval_id=?').run(id);
+  // Compact receipts survive purge for idempotent acknowledgement after a lost response.
+};
+const settled = (card: ApprovalRequest): boolean => {
+  const phase = finalPhase(card);
+  if (!phase || !verifiedLifecycle(card)) return false;
+  const phases = card.status === 'approved' ? ['approved', phase] : [phase];
+  return phases.every(p => db.prepare('SELECT 1 FROM lifecycle_feedback WHERE approval_id=? AND generation=? AND phase=?')
+    .get(card.id, generation(card), p));
+};
+const hideOrRemove = (row: ApprovalRow) => {
+  if (retention(row.id) && !settled(parseApprovalRow(row))) {
+    db.prepare('UPDATE lifecycle_retention SET hidden=1 WHERE approval_id=?').run(row.id);
+  } else purge(row.id);
+};
+
+// Explicit authenticated consumer path, keyset bounded; hidden UI history stays hidden.
+app.get('/api/lifecycle/approvals', (req, res) => {
+  const raw = req.query.limit ?? '200';
+  const limit = Number(raw);
+  const after = typeof req.query.after === 'string' ? req.query.after : '';
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500 || after.length > 200) {
+    res.status(400).json({error: 'Invalid lifecycle cursor or limit'}); return;
+  }
+  const rows = db.prepare(`SELECT a.* FROM approvals a JOIN lifecycle_retention r ON a.id=r.approval_id
+    WHERE a.id > ? ORDER BY a.id LIMIT ?`).all(after, limit + 1) as ApprovalRow[];
+  const page = rows.slice(0, limit);
+  res.json({approvals: page.map(row => {const card = parseApprovalRow(row); return {...card, feedbackGeneration: generation(card)};}),
+    nextCursor: rows.length > limit ? page[page.length - 1]?.id : null});
+});
+
+app.post('/api/approvals/:id/feedback', (req, res) => {
+  const id = firstParam(req.params.id);
+  const {generation: gen, phase, contextSignature, messageId} = req.body;
+  if (typeof gen !== 'string' || typeof contextSignature !== 'string' || typeof messageId !== 'string'
+      || !/^[1-9][0-9]{0,19}$/.test(messageId) || !['approved','completed','failed','rejected'].includes(phase)) {
+    res.status(400).json({error: 'Invalid feedback receipt'}); return;
+  }
+  const row = getApprovalRow(id);
+  if (!row) {
+    const receipt = db.prepare(`SELECT context_signature,message_id FROM lifecycle_feedback WHERE approval_id=? AND generation=? AND phase=?`).get(id, gen, phase) as any;
+    if (receipt?.context_signature === contextSignature && receipt?.message_id === messageId) {res.json({success:true}); return;}
+    res.status(404).json({error:'Approval not found'}); return;
+  }
+  const card = parseApprovalRow(row);
+  const terminal = finalPhase(card);
+  if (!verifiedLifecycle(card) || gen !== generation(card) || contextSignature !== card.payload.details?.lifecycle?.signature
+      || (phase === 'approved' ? card.status !== 'approved' : phase !== terminal)
+      || phase !== 'approved' && card.status === 'approved' && !db.prepare(`SELECT 1 FROM lifecycle_feedback WHERE approval_id=? AND generation=? AND phase='approved'`).get(id, gen)) {
+    res.status(409).json({error: 'Feedback identity, phase or generation mismatch'}); return;
+  }
+  const existing = db.prepare('SELECT message_id FROM lifecycle_feedback WHERE approval_id=? AND generation=? AND phase=?').get(id, gen, phase) as any;
+  if (existing && existing.message_id !== messageId) {res.status(409).json({error:'Conflicting delivery receipt'}); return;}
+  db.transaction(() => {
+    db.prepare('INSERT OR IGNORE INTO lifecycle_feedback (approval_id,generation,phase,context_signature,message_id) VALUES (?,?,?,?,?)')
+      .run(id,gen,phase,contextSignature,messageId);
+    if (retention(id)?.hidden && settled(card)) purge(id);
+  })();
+  res.json({success:true});
+});
+
+const listApprovals = (includeRetained: boolean) => (req: Request, res: Response) => {
+  const rows = db.prepare(`SELECT a.* FROM approvals a LEFT JOIN lifecycle_retention r ON a.id=r.approval_id
+    WHERE (? OR COALESCE(r.hidden,0)=0) ORDER BY a.created_at DESC`).all(includeRetained ? 1 : 0) as ApprovalRow[];
   const requestedStatuses =
     typeof req.query.status === 'string'
       ? req.query.status
@@ -715,6 +897,9 @@ app.get('/api/approvals', (req, res) => {
   const requestedLimit =
     typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : undefined;
 
+  if (includeRetained && (!requestedConnector || !requestedLimit || !Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 500)) {
+    res.status(400).json({error:'Explicit connector and bounded limit required'}); return;
+  }
   let approvals = rows.map(parseApprovalRow);
 
   if (requestedStatuses.length > 0) {
@@ -742,7 +927,9 @@ app.get('/api/approvals', (req, res) => {
   }
 
   res.json(approvals);
-});
+};
+app.get('/api/approvals', listApprovals(false));
+app.get('/api/lifecycle/execution', listApprovals(true));
 
 app.get('/api/approvals/:id', (req, res) => {
   const approval = getApprovalRow(firstParam(req.params.id));
@@ -751,7 +938,7 @@ app.get('/api/approvals/:id', (req, res) => {
     return;
   }
 
-  res.json(parseApprovalRow(approval));
+  res.json({...parseApprovalRow(approval), executionGuardVersion: 1});
 });
 
 app.post('/api/approvals', (req, res) => {
@@ -765,9 +952,17 @@ app.post('/api/approvals', (req, res) => {
     return;
   }
 
+  if (payload.details?.executionClaim !== undefined) {
+    res.status(400).json({error: 'Execution claim is server-managed'}); return;
+  }
+
   const id = generateId();
   const stmt = db.prepare('INSERT INTO approvals (id, action, payload) VALUES (?, ?, ?)');
-  stmt.run(id, action, JSON.stringify(payload));
+  db.transaction(() => {
+    stmt.run(id, action, JSON.stringify(payload));
+    if (payload.details?.lifecycle?.version === 1) db.prepare('INSERT INTO lifecycle_retention (approval_id,context) VALUES (?,?)')
+      .run(id, JSON.stringify(payload.details.lifecycle));
+  })();
 
   const approval = getApprovalRow(id);
   const createdApproval = approval ? parseApprovalRow(approval) : null;
@@ -800,30 +995,30 @@ app.put('/api/approvals/:id', (req, res) => {
     return;
   }
 
-  const approval = getApprovalRow(id);
-  if (!approval) {
-    res.status(404).json({ error: 'Approval not found' });
-    return;
-  }
-
-  const parsedPayload = JSON.parse(approval.payload) as ActionPayload;
-  const nextPayload =
-    isRecord(manualEdit) ? mergeActionPayload(parsedPayload, manualEdit as Partial<ActionPayload>) : parsedPayload;
-  db.prepare(
-    'UPDATE approvals SET status = ?, payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-  ).run(status, JSON.stringify(nextPayload), id);
-
-  recordAuditEntry(
-    id,
-    approval.action,
-    `Status changed to ${status}${feedback ? ` with feedback: ${feedback}` : ''}`,
-  );
-
-  const updatedApproval = getApprovalRow(id);
-  res.json({
-    success: true,
-    approval: updatedApproval ? parseApprovalRow(updatedApproval) : undefined,
-  });
+  const outcome = db.transaction(() => {
+    const approval = getApprovalRow(id);
+    if (!approval) return {code: 404, body: {error: 'Approval not found'}};
+    const parsedPayload = JSON.parse(approval.payload) as ActionPayload;
+    const nextPayload = isRecord(manualEdit)
+      ? mergeActionPayload(parsedPayload, manualEdit as Partial<ActionPayload>) : parsedPayload;
+    if (retention(id) && (stableWire(nextPayload.details?.lifecycle) !== stableWire(parsedPayload.details?.lifecycle)
+        || nextPayload.details?.bridgeApprovalId !== parsedPayload.details?.bridgeApprovalId
+        || nextPayload.connector !== parsedPayload.connector)) {
+      return {code: 409, body: {error: 'Cannot change enrolled lifecycle identity'}};
+    }
+    const claimed = parsedPayload.details?.executionClaim;
+    if (stableWire(nextPayload.details?.executionClaim ?? null) !== stableWire(claimed ?? null)
+        || claimed && (executionFields.some(k => stableWire(nextPayload.details?.[k] ?? null) !== stableWire(parsedPayload.details?.[k] ?? null))
+          || parsedPayload.details?.executionStatus === 'running'
+             && stableWire(executionIdentity(approval.action, nextPayload)) !== stableWire(executionIdentity(approval.action, parsedPayload)))) {
+      return {code: 409, body: {error: 'Cannot change claimed execution identity or metadata'}};
+    }
+    db.prepare('UPDATE approvals SET status = ?, payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(status, JSON.stringify(nextPayload), id);
+    recordAuditEntry(id, approval.action, `Status changed to ${status}${feedback ? ` with feedback: ${feedback}` : ''}`);
+    return {code: 200, body: {success: true, approval: parseApprovalRow(getApprovalRow(id)!)}};
+  }).immediate();
+  res.status(outcome.code).json(outcome.body);
 });
 
 app.delete('/api/approvals/:id', (req, res) => {
@@ -846,11 +1041,7 @@ app.delete('/api/approvals/:id', (req, res) => {
     return;
   }
 
-  const removeApproval = db.transaction((approvalId: string) => {
-    db.prepare('DELETE FROM audit_log WHERE approval_id = ?').run(approvalId);
-    db.prepare('DELETE FROM approvals WHERE id = ?').run(approvalId);
-  });
-  removeApproval(id);
+  db.transaction(() => hideOrRemove(approval))();
 
   res.json({ success: true });
 });
@@ -861,20 +1052,8 @@ app.delete('/api/approvals', (req, res) => {
   // seen yet. The same pending-card guard lives on the per-id endpoint
   // and on the loopkind UI; this is a third belt-and-braces line.
   const wipeReviewed = db.transaction(() => {
-    const reviewed = db
-      .prepare("SELECT id FROM approvals WHERE status <> 'pending'")
-      .all() as { id: string }[];
-    if (reviewed.length === 0) {
-      return 0;
-    }
-    const placeholders = reviewed.map(() => '?').join(',');
-    const ids = reviewed.map(row => row.id);
-    db.prepare(
-      `DELETE FROM audit_log WHERE approval_id IN (${placeholders})`,
-    ).run(...ids);
-    db.prepare(
-      `DELETE FROM approvals WHERE id IN (${placeholders})`,
-    ).run(...ids);
+    const reviewed = db.prepare("SELECT * FROM approvals WHERE status <> 'pending'").all() as ApprovalRow[];
+    for (const row of reviewed) hideOrRemove(row);
     return reviewed.length;
   });
   const removed = wipeReviewed();
@@ -883,45 +1062,49 @@ app.delete('/api/approvals', (req, res) => {
 
 app.patch('/api/approvals/:id/execution', (req, res) => {
   const id = firstParam(req.params.id);
-  const { executionStatus, executedAt, executionResult, executionError } = req.body;
+  const {executionStatus, executedAt, executionResult, executionError, executionGuard} = req.body;
   if (!executionStatuses.has(executionStatus)) {
-    res.status(400).json({ error: 'Invalid execution status' });
-    return;
+    res.status(400).json({error: 'Invalid execution status'}); return;
   }
-
-  const approval = getApprovalRow(id);
-  if (!approval) {
-    res.status(404).json({ error: 'Approval not found' });
-    return;
-  }
-
-  const parsedPayload = JSON.parse(approval.payload) as ActionPayload;
-  const nextPayload = mergeActionPayload(parsedPayload, {
-    details: {
-      ...parsedPayload.details,
-      executionStatus,
-      executedAt,
-      executionResult,
-      executionError,
-    },
-  });
-
-  db.prepare('UPDATE approvals SET payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
-    JSON.stringify(nextPayload),
-    id,
-  );
-
-  recordAuditEntry(
-    id,
-    approval.action,
-    `Execution changed to ${executionStatus}${executionError ? ` with error: ${executionError}` : ''}`,
-  );
-
-  const updatedApproval = getApprovalRow(id);
-  res.json({
-    success: true,
-    approval: updatedApproval ? parseApprovalRow(updatedApproval) : undefined,
-  });
+  // Read, compare, write and audit share the SQLite write transaction. A GET
+  // followed by an unconditional PATCH would leave an ownership race here.
+  const outcome = db.transaction(() => {
+    const approval = getApprovalRow(id);
+    if (!approval) return {code: 404, body: {error: 'Approval not found'}};
+    const parsedPayload = JSON.parse(approval.payload) as ActionPayload;
+    const d = parsedPayload.details ?? {};
+    const claim = d.executionClaim;
+    if (executionGuard !== undefined || claim) {
+      const conflict = {code: 409, body: {error: 'Execution ownership conflict'}};
+      if (!validExecutionGuard(executionGuard, approval.action, parsedPayload)) return conflict;
+      if (executionStatus === 'running') {
+        if (approval.status !== 'approved') return conflict;
+        if (claim) {
+          if (d.executionStatus !== 'running' || stableWire(claim) !== stableWire(executionGuard)) return conflict;
+          return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(approval)}};
+        }
+        if (d.executionStatus !== 'pending') return conflict;
+      } else {
+        if (!claim || stableWire(claim) !== stableWire(executionGuard)
+            || !['completed', 'failed'].includes(executionStatus)) return conflict;
+        if (d.executionStatus !== 'running') {
+          if (d.executionStatus !== executionStatus || stableWire(d.executionResult ?? null) !== stableWire(executionResult ?? null)
+              || stableWire(d.executionError ?? null) !== stableWire(executionError ?? null)
+              || stableWire(d.executedAt ?? null) !== stableWire(executedAt ?? null)) return conflict;
+          return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(approval)}};
+        }
+      }
+    }
+    const nextPayload = mergeActionPayload(parsedPayload, {details: {
+      ...d, executionStatus, executedAt, executionResult, executionError,
+      ...(executionGuard !== undefined ? {executionClaim: executionGuard} : {}),
+    }});
+    db.prepare('UPDATE approvals SET payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(JSON.stringify(nextPayload), id);
+    recordAuditEntry(id, approval.action, `Execution changed to ${executionStatus}${executionError ? ` with error: ${executionError}` : ''}`);
+    return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(getApprovalRow(id)!)}};
+  }).immediate();
+  res.status(outcome.code).json(outcome.body);
 });
 
 app.get('/api/tokens/:service', (req, res) => {

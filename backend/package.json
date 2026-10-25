@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -13,11 +13,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@quill/shared": "^0.2.0",
+    "@quill/shared": "^0.3.0",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.3.0",
     "sqlite3": "^6.0.1",

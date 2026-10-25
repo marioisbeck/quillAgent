@@ -8,12 +8,13 @@ name: security
 # clean clone, pushes from another machine, and the very first push of
 # a new branch.
 #
-# Three jobs:
+# Security jobs run on every trigger; builds verify locked dependency updates.
 #   - gitleaks      on every push and PR (fast; consumes baseline)
-#   - osv-scanner   on PRs and the daily schedule (lockfile changes)
-#   - semgrep       on PRs and the daily schedule (slower SAST)
+#   - osv-scanner   on pushes, PRs, manual runs and the daily schedule
+#   - semgrep       on pushes, PRs, manual runs and the daily schedule
 
 on:
+  workflow_dispatch:
   push:
     branches: [develop, main]
   pull_request:
@@ -27,17 +28,36 @@ permissions:
   pull-requests: write
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked workspace dependencies
+        run: npm ci
+      - name: Build shared contracts before consumers
+        run: |
+          npm run build -w shared
+          npm run build -w backend
+          npm run build -w quill-agent
+
   gitleaks:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Check out repository (full history for git-history scan)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         env:
           # gitleaks-action@v2 requires GITHUB_TOKEN to scan PRs.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,19 +68,19 @@ jobs:
   osv-scanner:
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Install osv-scanner from the upstream release binary.
-      # `--recursive` walks the workspace and finds backend/, quill-agent/,
-      # shared/ lockfiles via the root package-lock.json.
+      # The root lockfile covers all three npm workspaces, including dev and
+      # optional dependencies. Select it explicitly so traversal cannot skip it.
       - name: Install osv-scanner
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
+          curl -fsSL https://github.com/google/osv-scanner/releases/download/v2.3.5/osv-scanner_linux_amd64 \
             -o osv-scanner
+          echo "bb30c580afe5e757d3e959f4afd08a4795ea505ef84c46962b9a738aa573b41b  osv-scanner" | sha256sum --check --strict
           chmod +x osv-scanner
           ./osv-scanner --version
 
@@ -71,13 +91,13 @@ jobs:
         # scan once to JSON, print every finding for visibility, then fail
         # the job only on High/Critical: CVSS base score >= 7.0 OR a GHSA
         # "HIGH"/"CRITICAL" label (covers advisories with no CVSS vector).
-        # osv-scanner v2 dropped --skip-git; --recursive still walks subpaths.
+        # Scan the single workspace lockfile; retain the full advisory report.
         run: |
           set -uo pipefail
           # Actions invokes bash with -e; keep the scanner in an OR-list so
           # exit 1 reaches the explicit severity gate below.
           rc=0
-          ./osv-scanner --recursive --format json --output osv-results.json ./ || rc=$?
+          ./osv-scanner scan source --lockfile "$PWD/package-lock.json" --format json --output-file osv-results.json || rc=$?
           if [ "$rc" -gt 1 ]; then
             echo "::error::osv-scanner failed to run (exit $rc)"
             exit "$rc"
@@ -112,23 +132,13 @@ jobs:
   semgrep:
     runs-on: ubuntu-latest
     timeout-minutes: 12
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     container:
       image: semgrep/semgrep:latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Run semgrep CI
-        # On the daily `schedule` run, findings must NOT fail the job — the
-        # scheduled full scan surfaces stable, pre-existing findings and was
-        # emailing a "Run failed" notice every day. Report-only on schedule;
-        # pull-request runs stay diff-gated and blocking, so real regressions
-        # are still caught.
-        continue-on-error: ${{ github.event_name == 'schedule' }}
-        # SEMGREP_RULES is deliberately NOT set here: `--config=auto` below
-        # OVERRIDES that env var, so the packs previously listed were never
-        # actually applied. quillServer found this and dropped the dead
-        # config; propagating the fix instead of carrying settings that
-        # do nothing.
+        # Findings fail every scan, including the daily schedule. Reviewed
+        # intentional behaviors carry exact-rule annotations at their sources.
         run: semgrep ci --config=auto
