@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Update Express and vulnerable transitive dependencies to patched releases. Run dependency and source security scans on every integration/release push and manual run, with clean workspace builds to verify dependency updates. Daily SAST findings now fail CI.
+
 ### Fixed
 
 - Validate optional gateway execution claims and reports atomically against the current owner. Protect claimed identity during execution while retaining human decisions, harmless edits and legacy callers.

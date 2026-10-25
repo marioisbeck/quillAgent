@@ -11,6 +11,8 @@ updates:
     # puts a commit on main that never flows back to develop -- the
     # divergence Gitflow exists to prevent.
     target-branch: "develop"
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
       day: "monday"
@@ -38,6 +40,8 @@ updates:
     # puts a commit on main that never flows back to develop -- the
     # divergence Gitflow exists to prevent.
     target-branch: "develop"
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
       day: "monday"
