@@ -724,6 +724,23 @@ const stableWire = (value: any): string => {
       .map(k => JSON.stringify(k) + ':' + stableWire(value[k])).join(',') + '}' : JSON.stringify(value);
   return text.replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 };
+// Optional compare-and-claim for the gateway parity owner. This validates
+// approval metadata only; execution remains with the existing local bridge.
+const executionIdentity = (action: string, payload: ActionPayload) => ({
+  action, connector: payload.connector, kind: payload.details?.kind ?? null,
+  bridgeApprovalId: payload.details?.bridgeApprovalId ?? null,
+  resumeToken: payload.details?.resumeToken ?? null,
+});
+const validExecutionGuard = (guard: any, action: string, payload: ActionPayload): boolean =>
+  isRecord(guard) && guard.version === 1 && guard.owner === 'gateway_parity'
+  && typeof guard.token === 'string' && /^[a-f0-9]{32}$/.test(guard.token)
+  && String(payload.connector) === 'gateway' && action !== 'server_route_codex'
+  && payload.details?.kind !== 'server_codex'
+  && typeof payload.details?.bridgeApprovalId === 'string' && !!payload.details.bridgeApprovalId
+  && typeof payload.details?.resumeToken === 'string' && !!payload.details.resumeToken
+  && isRecord(guard.identity) && stableWire(guard.identity) === stableWire(executionIdentity(action, payload));
+const executionFields = ['executionClaim', 'executionStatus', 'executionResult', 'executionError', 'executedAt'];
+
 const retention = (id: string) => db.prepare('SELECT * FROM lifecycle_retention WHERE approval_id=?')
   .get(id) as {context: string; hidden: number} | undefined;
 const generation = (card: ApprovalRequest): string => crypto.createHash('sha256').update(stableWire({
@@ -921,7 +938,7 @@ app.get('/api/approvals/:id', (req, res) => {
     return;
   }
 
-  res.json(parseApprovalRow(approval));
+  res.json({...parseApprovalRow(approval), executionGuardVersion: 1});
 });
 
 app.post('/api/approvals', (req, res) => {
@@ -933,6 +950,10 @@ app.post('/api/approvals', (req, res) => {
   if (!isRecord(payload) || typeof payload.connector !== 'string' || typeof payload.summary !== 'string') {
     res.status(400).json({ error: 'payload must include connector and summary' });
     return;
+  }
+
+  if (payload.details?.executionClaim !== undefined) {
+    res.status(400).json({error: 'Execution claim is server-managed'}); return;
   }
 
   const id = generateId();
@@ -974,35 +995,30 @@ app.put('/api/approvals/:id', (req, res) => {
     return;
   }
 
-  const approval = getApprovalRow(id);
-  if (!approval) {
-    res.status(404).json({ error: 'Approval not found' });
-    return;
-  }
-
-  const parsedPayload = JSON.parse(approval.payload) as ActionPayload;
-  const nextPayload =
-    isRecord(manualEdit) ? mergeActionPayload(parsedPayload, manualEdit as Partial<ActionPayload>) : parsedPayload;
-  if (retention(id) && (stableWire(nextPayload.details?.lifecycle) !== stableWire(parsedPayload.details?.lifecycle)
-      || nextPayload.details?.bridgeApprovalId !== parsedPayload.details?.bridgeApprovalId
-      || nextPayload.connector !== parsedPayload.connector)) {
-    res.status(409).json({error:'Cannot change enrolled lifecycle identity'}); return;
-  }
-  db.prepare(
-    'UPDATE approvals SET status = ?, payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?' ,
-  ).run(status, JSON.stringify(nextPayload), id);
-
-  recordAuditEntry(
-    id,
-    approval.action,
-    `Status changed to ${status}${feedback ? ` with feedback: ${feedback}` : ''}`,
-  );
-
-  const updatedApproval = getApprovalRow(id);
-  res.json({
-    success: true,
-    approval: updatedApproval ? parseApprovalRow(updatedApproval) : undefined,
-  });
+  const outcome = db.transaction(() => {
+    const approval = getApprovalRow(id);
+    if (!approval) return {code: 404, body: {error: 'Approval not found'}};
+    const parsedPayload = JSON.parse(approval.payload) as ActionPayload;
+    const nextPayload = isRecord(manualEdit)
+      ? mergeActionPayload(parsedPayload, manualEdit as Partial<ActionPayload>) : parsedPayload;
+    if (retention(id) && (stableWire(nextPayload.details?.lifecycle) !== stableWire(parsedPayload.details?.lifecycle)
+        || nextPayload.details?.bridgeApprovalId !== parsedPayload.details?.bridgeApprovalId
+        || nextPayload.connector !== parsedPayload.connector)) {
+      return {code: 409, body: {error: 'Cannot change enrolled lifecycle identity'}};
+    }
+    const claimed = parsedPayload.details?.executionClaim;
+    if (stableWire(nextPayload.details?.executionClaim ?? null) !== stableWire(claimed ?? null)
+        || claimed && (executionFields.some(k => stableWire(nextPayload.details?.[k] ?? null) !== stableWire(parsedPayload.details?.[k] ?? null))
+          || parsedPayload.details?.executionStatus === 'running'
+             && stableWire(executionIdentity(approval.action, nextPayload)) !== stableWire(executionIdentity(approval.action, parsedPayload)))) {
+      return {code: 409, body: {error: 'Cannot change claimed execution identity or metadata'}};
+    }
+    db.prepare('UPDATE approvals SET status = ?, payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(status, JSON.stringify(nextPayload), id);
+    recordAuditEntry(id, approval.action, `Status changed to ${status}${feedback ? ` with feedback: ${feedback}` : ''}`);
+    return {code: 200, body: {success: true, approval: parseApprovalRow(getApprovalRow(id)!)}};
+  }).immediate();
+  res.status(outcome.code).json(outcome.body);
 });
 
 app.delete('/api/approvals/:id', (req, res) => {
@@ -1046,45 +1062,49 @@ app.delete('/api/approvals', (req, res) => {
 
 app.patch('/api/approvals/:id/execution', (req, res) => {
   const id = firstParam(req.params.id);
-  const { executionStatus, executedAt, executionResult, executionError } = req.body;
+  const {executionStatus, executedAt, executionResult, executionError, executionGuard} = req.body;
   if (!executionStatuses.has(executionStatus)) {
-    res.status(400).json({ error: 'Invalid execution status' });
-    return;
+    res.status(400).json({error: 'Invalid execution status'}); return;
   }
-
-  const approval = getApprovalRow(id);
-  if (!approval) {
-    res.status(404).json({ error: 'Approval not found' });
-    return;
-  }
-
-  const parsedPayload = JSON.parse(approval.payload) as ActionPayload;
-  const nextPayload = mergeActionPayload(parsedPayload, {
-    details: {
-      ...parsedPayload.details,
-      executionStatus,
-      executedAt,
-      executionResult,
-      executionError,
-    },
-  });
-
-  db.prepare('UPDATE approvals SET payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
-    JSON.stringify(nextPayload),
-    id,
-  );
-
-  recordAuditEntry(
-    id,
-    approval.action,
-    `Execution changed to ${executionStatus}${executionError ? ` with error: ${executionError}` : ''}`,
-  );
-
-  const updatedApproval = getApprovalRow(id);
-  res.json({
-    success: true,
-    approval: updatedApproval ? parseApprovalRow(updatedApproval) : undefined,
-  });
+  // Read, compare, write and audit share the SQLite write transaction. A GET
+  // followed by an unconditional PATCH would leave an ownership race here.
+  const outcome = db.transaction(() => {
+    const approval = getApprovalRow(id);
+    if (!approval) return {code: 404, body: {error: 'Approval not found'}};
+    const parsedPayload = JSON.parse(approval.payload) as ActionPayload;
+    const d = parsedPayload.details ?? {};
+    const claim = d.executionClaim;
+    if (executionGuard !== undefined || claim) {
+      const conflict = {code: 409, body: {error: 'Execution ownership conflict'}};
+      if (!validExecutionGuard(executionGuard, approval.action, parsedPayload)) return conflict;
+      if (executionStatus === 'running') {
+        if (approval.status !== 'approved') return conflict;
+        if (claim) {
+          if (d.executionStatus !== 'running' || stableWire(claim) !== stableWire(executionGuard)) return conflict;
+          return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(approval)}};
+        }
+        if (d.executionStatus !== 'pending') return conflict;
+      } else {
+        if (!claim || stableWire(claim) !== stableWire(executionGuard)
+            || !['completed', 'failed'].includes(executionStatus)) return conflict;
+        if (d.executionStatus !== 'running') {
+          if (d.executionStatus !== executionStatus || stableWire(d.executionResult ?? null) !== stableWire(executionResult ?? null)
+              || stableWire(d.executionError ?? null) !== stableWire(executionError ?? null)
+              || stableWire(d.executedAt ?? null) !== stableWire(executedAt ?? null)) return conflict;
+          return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(approval)}};
+        }
+      }
+    }
+    const nextPayload = mergeActionPayload(parsedPayload, {details: {
+      ...d, executionStatus, executedAt, executionResult, executionError,
+      ...(executionGuard !== undefined ? {executionClaim: executionGuard} : {}),
+    }});
+    db.prepare('UPDATE approvals SET payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(JSON.stringify(nextPayload), id);
+    recordAuditEntry(id, approval.action, `Execution changed to ${executionStatus}${executionError ? ` with error: ${executionError}` : ''}`);
+    return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(getApprovalRow(id)!)}};
+  }).immediate();
+  res.status(outcome.code).json(outcome.body);
 });
 
 app.get('/api/tokens/:service', (req, res) => {

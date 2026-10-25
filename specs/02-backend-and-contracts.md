@@ -118,3 +118,44 @@ are held. Telegram timeout/unknown sends have no confirmed receipt. No human
 history cleanup may treat them as delivered. Full delivery semantics live in
 `quillServer/setup/loopkind-lifecycle.md`; the observer retries receipt writes
 without sending again, invoking approvals or replaying actions.
+
+## Optional conditional execution ownership (v1)
+
+This remains approval-state validation and audit only. No backend action runner,
+provider routing, polling controller or reasoning is added.
+
+Authenticated `GET /api/approvals/:id` advertises `executionGuardVersion: 1`.
+Gateway parity opts into `PATCH /api/approvals/:id/execution` with:
+
+```json
+{"executionStatus":"running","executionGuard":{"version":1,"owner":"gateway_parity","token":"<fresh 32 hex characters>","identity":{"connector":"gateway","action":"<current action>","kind":"<current kind or null>","bridgeApprovalId":"<local ID>","resumeToken":"<local token>"}}}
+```
+
+`BEGIN IMMEDIATE` encloses the read/compare/update/audit. A running claim requires
+approved/pending, exact current identity, a non-server-route gateway owner and
+no prior claim. Saved `payload.details.executionClaim` binds the identity/token.
+Server actions (`server_route_codex`) and kinds (`server_codex`) always conflict.
+Same-token running retries are idempotent while still approved/running; another
+token, nonpending state, invalid identity or unauthorized owner returns 409 with
+no execution/audit mutation. The token correlates a claim; mandatory shared API
+authentication is still required and it grants no new cross-owner authority.
+
+Completed/failed reports must include the same guard, match the current identity
+and transition that claim from running. Identical terminal retries are
+idempotent; changed or conflicting reports are refused. Successful guarded
+responses include `success`, `executionGuardVersion: 1`, and the updated card.
+
+Create/manualEdit cannot forge or remove a claim. Once claimed, execution fields
+cannot be changed by manualEdit or unguarded execution PATCH. While running,
+manualEdit also cannot change connector, kind, local approval ID or resume token;
+the top-level action is already immutable through this API. Human decisions,
+summary and harmless detail edits remain available. Ordinary unclaimed legacy
+execution callers are compatible. Existing frozen lifecycle identity, retention,
+feedback-generation and HMAC settlement checks continue independently.
+
+Consumers recheck current ownership before any PATCH and decision/claim before
+local resume. A missing capability or unconfirmed claim response never invokes
+the action. Lost claims/reports do not authorize reset, stealing or action replay.
+Deploy this backend contract before consumers; preserve DB/audit/receipt and local
+outbox/attempt/approval state during rollout. Runtime dependency and exact origin
+binding preflights remain in `quillServer/setup/loopkind-lifecycle.md`.

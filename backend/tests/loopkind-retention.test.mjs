@@ -83,3 +83,19 @@ with tempfile.TemporaryDirectory() as tmp:
  else {assert.equal(data.sends.length,2);for(const [path,body] of data.receipts)assert.equal(call('post','/api/approvals/:id/feedback',body,{id:c.id}).statusCode,200)}
  assert.equal(retained().some(a=>a.id===c.id),unknown);
 });
+
+test('conditional gateway claim coexists with hidden history, immutable origin and durable settlement',()=>{
+ const ctx={version:1,origin:{channel:'telegram',accountId:'fixture',chatId:'-10012',topicId:'47'},task:'Gateway task',connector:'gateway',bridgeApprovalId:'guarded',expiresAt:'2099-01-01T00:00:00Z'};
+ ctx.signature=createHmac('sha256','fixture').update(wire(ctx)).digest('hex');
+ const c=call('post','/api/approvals',{action:'gateway_fixture',payload:{connector:'gateway',summary:'fixture',details:{kind:'gateway_parity',bridgeApprovalId:'guarded',resumeToken:'fixture-token',executionStatus:'pending',lifecycle:ctx}}}).body;
+ decide(c.id);const g={version:1,owner:'gateway_parity',token:'a'.repeat(32),identity:{connector:'gateway',action:c.action,kind:'gateway_parity',bridgeApprovalId:'guarded',resumeToken:'fixture-token'}};
+ const report=status=>call('patch','/api/approvals/:id/execution',{executionStatus:status,executionResult:{ok:true},executionGuard:g},{id:c.id});
+ assert.equal(report('running').statusCode,200);assert.equal(call('delete','/api/approvals/:id',{}, {id:c.id}).statusCode,200);
+ assert.ok(!call('get','/api/approvals').body.some(a=>a.id===c.id));
+ assert.equal(call('put','/api/approvals/:id',{status:'approved',manualEdit:{details:{kind:'server_codex'}}},{id:c.id}).statusCode,409);
+ assert.equal(call('put','/api/approvals/:id',{status:'approved',manualEdit:{details:{lifecycle:{...ctx,origin:{...ctx.origin,topicId:'99'}}}}},{id:c.id}).statusCode,409);
+ assert.equal(report('completed').statusCode,200);const r=retained().find(a=>a.id===c.id);
+ assert.deepEqual(r.payload.details.lifecycle,ctx);assert.equal(settle(r,'completed').statusCode,409);
+ assert.equal(settle(r,'approved').statusCode,200);assert.equal(settle(r,'completed').statusCode,200);
+ assert.equal(settle(r,'completed').statusCode,200);assert.equal(call('get','/api/approvals/:id',{}, {id:c.id}).statusCode,404);
+});
