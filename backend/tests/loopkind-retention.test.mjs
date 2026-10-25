@@ -10,6 +10,35 @@ function decide(id,status='approved'){return call('put','/api/approvals/:id',{st
 function execution(id,status,result={ok:true}){return call('patch','/api/approvals/:id/execution',{executionStatus:status,executionResult:result},{id})}
 function retained(){return call('get','/api/lifecycle/approvals',{}, {},{limit:'500'}).body.approvals}
 function settle(c,phase){return call('post','/api/approvals/:id/feedback',{generation:c.feedbackGeneration,contextSignature:c.payload.details.lifecycle.signature,phase,messageId:'123'},{id:c.id})}
+function localCard(overrides={}) {
+ const ctx={version:1,connector:'laptop',origin:{channel:'desktop',host:'fixture-mac',requestId:'a'.repeat(32)},
+  bridgeApprovalId:'local-desktop',host:'fixture-mac',attemptId:'b'.repeat(32),expiresAt:'2099-01-01T00:00:00Z',...overrides};
+ ctx.signature=createHmac('sha256','fixture').update(wire(ctx)).digest('hex');
+ return call('post','/api/approvals',{action:'laptop_shell',payload:{connector:'laptop',summary:'Local job',
+  details:{operation:'shell',bridgeApprovalId:ctx.bridgeApprovalId,executionStatus:'pending',lifecycle:ctx}}}).body;
+}
+function localResult(c){const ctx=c.payload.details.lifecycle;return {state:'completed',authoritative_completion:true,
+ completion_ref:{host:ctx.host,attemptId:ctx.attemptId,bridgeApprovalId:ctx.bridgeApprovalId,origin:ctx.origin}}}
+test('local jobs retain running/dispatch-only work and settle actual completion in Loopkind without Telegram receipts',()=>{
+ const c=localCard();decide(c.id);execution(c.id,'running',{state:'dispatched'});
+ call('delete','/api/approvals/:id',{}, {id:c.id});
+ assert.ok(retained().some(a=>a.id===c.id));
+ let current=retained().find(a=>a.id===c.id);assert.equal(settle(current,'approved').statusCode,409);
+ execution(c.id,'completed',{state:'dispatched'});assert.ok(retained().some(a=>a.id===c.id));
+ execution(c.id,'completed',localResult(c));
+ assert.equal(call('get','/api/approvals/:id',{}, {id:c.id}).statusCode,404);
+});
+test('foreign/malformed desktop identities and mismatched completion authority cannot release retention',()=>{
+ for(const overrides of [{host:'foreign'},{attemptId:'bad'},{connector:'mail'},
+  {origin:{channel:'desktop',host:'fixture-mac',requestId:'bad'}},
+  {origin:{channel:'desktop',host:'fixture-mac',requestId:'a'.repeat(32),chatId:'123'}}]){
+  const c=localCard(overrides);decide(c.id);execution(c.id,'completed',localResult(c));
+  call('delete','/api/approvals/:id',{}, {id:c.id});assert.ok(retained().some(a=>a.id===c.id));
+ }
+ const c=localCard();decide(c.id);const result=localResult(c);result.completion_ref.attemptId='c'.repeat(32);
+ execution(c.id,'completed',result);call('delete','/api/approvals/:id',{}, {id:c.id});
+ assert.ok(retained().some(a=>a.id===c.id));
+});
 for(const bulk of [false,true])for(const state of ['running','completed'])test(`${bulk?'bulk':'single'} cleanup hides but retains ${state}, late terminal and settlement durable`,()=>{
  const c=create(`${bulk}-${state}`);decide(c.id);execution(c.id,state);
  assert.equal(call('delete',bulk?'/api/approvals':'/api/approvals/:id',{}, {id:c.id}).statusCode,200);

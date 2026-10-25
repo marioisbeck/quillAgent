@@ -39,6 +39,15 @@ just tops up the queue.
 
 ## Database
 
+Signed `desktop` lifecycle contexts are accepted only for supervised Mac jobs
+whose origin host, attempt and local request are bound together. Their status
+surface is Loopkind itself, so genuine terminal results settle retention without
+Telegram delivery receipts. Running, uncertain, malformed and dispatch-only jobs
+remain retained after history cleanup. The Telegram feedback endpoint rejects
+desktop cards rather than inventing message receipts. Installation and the local
+agent launch contract are documented in `quillServer/setup/laptop-bridge.md` in
+the sibling repository.
+
 Default location: `quillAgent/backend/quill.db`. On the production host this
 maps to `/opt/quill/quillAgent/backend/quill.db`. Migrations are inline in
 `src/index.ts` (`CREATE TABLE IF NOT EXISTS …`), so the file appears on first
