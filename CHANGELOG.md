@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
+## [0.3.0] - 2026-10-25
 
-- Update Express and vulnerable transitive dependencies to patched releases. Run dependency and source security scans on every integration/release push and manual run, with clean workspace builds to verify dependency updates. Daily SAST findings now fail CI.
+### Added
+
+- Retain hidden Loopkind lifecycle cards and audit until the actual operation ends and exact-route Telegram feedback is durably confirmed. Authenticated consumers can finish hidden work after history cleanup.
 
 ### Fixed
 
@@ -17,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Validate optional gateway execution claims and reports atomically against the current owner. Protect claimed identity during execution while retaining human decisions, harmless edits and legacy callers.
 
-- Retain hidden Loopkind lifecycle cards and audit until the actual operation ends and exact-route Telegram feedback is durably confirmed. History cleanup keeps pending-card guards and legacy behavior; authenticated consumers can still finish hidden work.
+### Security
+
+- Update Express and vulnerable transitive dependencies to patched releases. Run dependency and source security scans on every integration/release push and manual run, with clean workspace builds to verify dependency updates. Daily SAST findings now fail CI.
 
 ## [0.2.4] - 2026-09-08
 
@@ -164,7 +168,8 @@ installed devices.
 - New approvals now fan out web-push notifications to registered loopkind
   devices whenever VAPID keys are configured.
 
-[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/marioisbeck/quillAgent/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/marioisbeck/quillAgent/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/marioisbeck/quillAgent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/marioisbeck/quillAgent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/marioisbeck/quillAgent/compare/v0.2.1...v0.2.2
