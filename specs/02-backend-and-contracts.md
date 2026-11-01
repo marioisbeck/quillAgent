@@ -159,3 +159,35 @@ the action. Lost claims/reports do not authorize reset, stealing or action repla
 Deploy this backend contract before consumers; preserve DB/audit/receipt and local
 outbox/attempt/approval state during rollout. Runtime dependency and exact origin
 binding preflights remain in `quillServer/setup/loopkind-lifecycle.md`.
+
+## Bounded Gmail execution ownership (mail v1)
+
+`GET /api/approvals/:id` and execution ACKs additionally advertise
+`mailGmailStateGuardVersion: 1`. This explicitly identifies mail support; the
+older generic `executionGuardVersion: 1` alone is insufficient.
+
+The only added owner is `mail_gmail_state`, for connector `mail`, operation
+`change_gmail_state`, action `Bounded Gmail state approval`, and account
+`marioisbeck@gmail.com`. Its v1 guard has a fresh 32-hex `token` and exact identity:
+`{action,connector,operation,account,selection,bridgeApprovalId,resumeToken}`.
+`selection` is the complete approved JSON snapshot, compared canonically with
+JSON types preserved. Other mail operations gain no new ownership capability.
+
+The existing immediate SQLite transaction now accepts this narrow owner in the
+same pending-to-running claim protocol. A state committed before claim admission
+is read inside that transaction; running/completed/failed conflicts preserve all
+execution fields, receipts and audit rows. The same claim is mandatory for
+terminal reports. Mismatched/unguarded late reports conflict. Claimed running
+identity and execution metadata cannot be edited manually. Gateway parity and
+server-route exclusions retain their existing identities and restrictions.
+
+Consumers must fail closed without this specific version, on conflict or on
+unconfirmed ACK; an additional GET is not compare-and-swap. They retain durable
+uncertainty and do not retry provider effects/reporting as action authority.
+The final authorization read remains required. Deploy the backend contract
+first; publication, deployment and provider verification remain separate gates.
+
+Offline real-route checks (disposable SQLite, synthetic data and credentials):
+`python3 backend/scripts/test-mail-execution-claim.py`. Set
+`QUILL_MAIL_FIXTURE_SCRIPTS` to the matching isolated quillServer `scripts/`
+directory to include real executor integration. No framework/npm runner is added.
