@@ -724,18 +724,29 @@ const stableWire = (value: any): string => {
       .map(k => JSON.stringify(k) + ':' + stableWire(value[k])).join(',') + '}' : JSON.stringify(value);
   return text.replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 };
-// Optional compare-and-claim for the gateway parity owner. This validates
+// Narrow compare-and-claim contracts for gateway parity and bounded Gmail. This validates
 // approval metadata only; execution remains with the existing local bridge.
-const executionIdentity = (action: string, payload: ActionPayload) => ({
+const isGmailState = (payload: ActionPayload): boolean =>
+  String(payload.connector) === 'mail' && payload.details?.operation === 'change_gmail_state';
+const executionIdentity = (action: string, payload: ActionPayload) => isGmailState(payload) ? ({
+  action, connector: payload.connector, operation: payload.details?.operation,
+  account: payload.details?.account, selection: payload.details?.selection,
+  bridgeApprovalId: payload.details?.bridgeApprovalId ?? null,
+  resumeToken: payload.details?.resumeToken ?? null,
+}) : ({
   action, connector: payload.connector, kind: payload.details?.kind ?? null,
   bridgeApprovalId: payload.details?.bridgeApprovalId ?? null,
   resumeToken: payload.details?.resumeToken ?? null,
 });
 const validExecutionGuard = (guard: any, action: string, payload: ActionPayload): boolean =>
-  isRecord(guard) && guard.version === 1 && guard.owner === 'gateway_parity'
+  isRecord(guard) && guard.version === 1
   && typeof guard.token === 'string' && /^[a-f0-9]{32}$/.test(guard.token)
-  && String(payload.connector) === 'gateway' && action !== 'server_route_codex'
-  && payload.details?.kind !== 'server_codex'
+  && ((guard.owner === 'gateway_parity' && String(payload.connector) === 'gateway'
+       && action !== 'server_route_codex' && payload.details?.kind !== 'server_codex')
+      || (guard.owner === 'mail_gmail_state' && isGmailState(payload)
+          && action === 'Bounded Gmail state approval'
+          && payload.details?.account === 'marioisbeck@gmail.com'
+          && isRecord(payload.details?.selection) && Object.keys(payload.details.selection).length > 0))
   && typeof payload.details?.bridgeApprovalId === 'string' && !!payload.details.bridgeApprovalId
   && typeof payload.details?.resumeToken === 'string' && !!payload.details.resumeToken
   && isRecord(guard.identity) && stableWire(guard.identity) === stableWire(executionIdentity(action, payload));
@@ -947,7 +958,7 @@ app.get('/api/approvals/:id', (req, res) => {
     return;
   }
 
-  res.json({...parseApprovalRow(approval), executionGuardVersion: 1});
+  res.json({...parseApprovalRow(approval), executionGuardVersion: 1, mailGmailStateGuardVersion: 1});
 });
 
 app.post('/api/approvals', (req, res) => {
@@ -1090,7 +1101,7 @@ app.patch('/api/approvals/:id/execution', (req, res) => {
         if (approval.status !== 'approved') return conflict;
         if (claim) {
           if (d.executionStatus !== 'running' || stableWire(claim) !== stableWire(executionGuard)) return conflict;
-          return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(approval)}};
+          return {code: 200, body: {success: true, executionGuardVersion: 1, mailGmailStateGuardVersion: 1, approval: parseApprovalRow(approval)}};
         }
         if (d.executionStatus !== 'pending') return conflict;
       } else {
@@ -1100,7 +1111,7 @@ app.patch('/api/approvals/:id/execution', (req, res) => {
           if (d.executionStatus !== executionStatus || stableWire(d.executionResult ?? null) !== stableWire(executionResult ?? null)
               || stableWire(d.executionError ?? null) !== stableWire(executionError ?? null)
               || stableWire(d.executedAt ?? null) !== stableWire(executedAt ?? null)) return conflict;
-          return {code: 200, body: {success: true, executionGuardVersion: 1, approval: parseApprovalRow(approval)}};
+          return {code: 200, body: {success: true, executionGuardVersion: 1, mailGmailStateGuardVersion: 1, approval: parseApprovalRow(approval)}};
         }
       }
     }
@@ -1113,7 +1124,7 @@ app.patch('/api/approvals/:id/execution', (req, res) => {
     recordAuditEntry(id, approval.action, `Execution changed to ${executionStatus}${executionError ? ` with error: ${executionError}` : ''}`);
     const updated = parseApprovalRow(getApprovalRow(id)!);
     if (retention(id)?.hidden && desktopLifecycle(updated.payload.details?.lifecycle) && settled(updated)) purge(id);
-    return {code: 200, body: {success: true, executionGuardVersion: 1, approval: updated}};
+    return {code: 200, body: {success: true, executionGuardVersion: 1, mailGmailStateGuardVersion: 1, approval: updated}};
   }).immediate();
   res.status(outcome.code).json(outcome.body);
 });

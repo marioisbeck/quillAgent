@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Bind bounded Gmail state execution to an atomic pending-to-running ownership claim and its exact approved identity. Preserve newer receipts and reject mismatched late reports without changing gateway/server ownership.
+
 ## [0.3.0] - 2026-10-25
 
 ### Added
