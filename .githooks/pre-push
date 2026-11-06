@@ -42,7 +42,11 @@ if [[ "$should_sync" -eq 0 ]]; then
 fi
 
 repo_root="$(git rev-parse --show-toplevel)"
-sibling_script="$repo_root/../quillServer/scripts/sync_runbooks_to_gateway.py"
+# A legacy/dirty primary server checkout may coexist with the owned mario
+# workbench. An explicit maintained source avoids publishing stale runbooks.
+sync_repo="$(git config --get quill.runbookSource || true)"
+sync_repo="${sync_repo:-$repo_root/../quillServer}"
+sibling_script="$sync_repo/scripts/sync_runbooks_to_gateway.py"
 
 if [[ ! -f "$sibling_script" ]]; then
   echo "[pre-push] no sibling quillServer/ checkout — skipping runbook sync." >&2
@@ -52,7 +56,7 @@ if [[ ! -f "$sibling_script" ]]; then
 fi
 
 echo "[pre-push] syncing runbooks to the active gateway runtime (via quillServer)…" >&2
-if ! python3 "$sibling_script" --apply; then
+if ! QUILL_RUNBOOK_WORKSPACE_ROOT="$repo_root/.." python3 "$sibling_script" --apply; then
   echo "" >&2
   echo "[pre-push] runbook sync failed. Push aborted." >&2
   echo "[pre-push] Re-run manually or push with QUILL_SKIP_RUNBOOK_SYNC=1 to bypass." >&2
