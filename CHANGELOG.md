@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Use the `mario` personal workbench and topic PRs into `main`, with explicit
+  delivery checkpoints and cleanup instead of accumulating local feature branches.
+
 ### Fixed
 
 - Bind bounded Gmail state execution to an atomic pending-to-running ownership claim and its exact approved identity. Preserve newer receipts and reject mismatched late reports without changing gateway/server ownership.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pre-push hook: mirror runbook markdown to whichever agent runtime is live
-# on the gateway whenever develop/main is being published from quillAgent.
+# on the gateway whenever mario/main (and legacy develop) is being published from quillAgent.
 #
 # quillAgent contributes the `specs/` tree to the consolidated
 # runbook index that lives on the gateway. The actual sync script
@@ -29,8 +29,8 @@ fi
 
 should_sync=0
 while read -r local_ref local_sha remote_ref remote_sha; do
-  case "$local_ref" in
-    refs/heads/develop|refs/heads/main)
+  case "$remote_ref" in
+    refs/heads/mario|refs/heads/develop|refs/heads/main)
       should_sync=1
       break
       ;;
