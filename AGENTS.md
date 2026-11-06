@@ -96,18 +96,19 @@ There is **no test runner, no linter, and no root `build` script** configured. `
 
 - **`.ts` is the source of truth.** Compiled `*.js`/`*.d.ts`/`*.map` files sometimes appear inside `src/` trees but are gitignored — never edit or commit them; edit the `.ts`.
 - **TypeScript 6, `strict: true` everywhere.** TS6's stricter null-narrowing is real here (see the `waitForApproval` fix in `CHANGELOG.md`); guard nullable values rather than asserting.
-- **`.githooks/pre-push`** (activated via `scripts/setup-githooks.sh`) syncs `specs/` runbooks into OpenClaw memory through the sibling `../quillServer` repo when pushing `develop`/`main`. It aborts the push on failure and requires `../quillServer` checked out beside this repo; bypass with `QUILL_SKIP_RUNBOOK_SYNC=1 git push`.
+- **`.githooks/pre-push`** (activated via `scripts/setup-githooks.sh`) syncs `specs/` runbooks into OpenClaw memory through the sibling `../quillServer` repo when pushing `mario`/`main` (and legacy `develop`). It aborts the push on failure and requires `../quillServer` checked out beside this repo; bypass with `QUILL_SKIP_RUNBOOK_SYNC=1 git push`.
 
-## Git workflow, CI & security
+## Git workflow
 
-The whole workspace follows one Gitflow + Conventional Commits convention. **Source of truth:** `../.cursor/skills/gitflow-commits/SKILL.md` (shared across `quillServer`, `quillAgent`, `loopkind`) — read it before committing or cutting a release. Key points:
+Policy: https://github.com/marioisbeck/quillServer/blob/main/setup/git-workflow.md
+(local sibling: `../quillServer/setup/git-workflow.md`). Procedure:
+https://github.com/marioisbeck/quillServer/blob/main/config/workspace/skills/gitflow-commits/SKILL.md.
+Use the shared Quill solo workbench policy: `mario` holds ongoing work and
+independent topic PRs target `main`, where Mario merges. `develop` is legacy
+migration state. The shared policy owns authorization, security gates, resync,
+branch/worktree completion and release handoff; do not apply old Gitflow rules.
 
-- **Branches:** `main` = production (release/hotfix merges only, tagged); `develop` = integration (default working branch, CI on every push); `feature--<slug>` off `develop`; `release--vX.Y.Z` and `hotfix--<slug>` merge into `main` **and back into** `develop`. Separator is a double dash (`--`).
-- **Never commit directly to `main`.** If you have work on `main`, branch `feature--<slug>` off `develop` first.
-- **Conventional Commits:** `<type>(<scope>): <summary ≤72, imperative, no period>` with a real body explaining the *why*. Types: `feat|fix|docs|refactor|perf|test|build|ci|chore|revert`.
-- **Commit hygiene:** one logical change per commit; run `gitleaks protect --staged --no-banner --redact` before every commit and abort on any finding; never stage `.env`/`*.pem`/`*.key`/`client_secret_*.json`/`credentials*.json`.
 - **Git email privacy** (`.cursor/rules/git-email-privacy.mdc`): commits use `22878918+marioisbeck@users.noreply.github.com`. On a `GH007` push rejection, amend the author to that noreply address.
-- **Changelog in the same PR as the change.** Keep a Changelog 1.1.0 + SemVer 2.0.0; user-visible (not commit-shaped) entries go under `## [Unreleased]` in `CHANGELOG.md`, grouped under Added/Changed/Deprecated/Removed/Fixed/Security. Cutting a release renames `Unreleased` to `## [X.Y.Z] - YYYY-MM-DD` and reopens a fresh `Unreleased`.
 - **Layered security scanning:** `.pre-commit-config.yaml` runs gitleaks + hygiene hooks locally (`pre-commit install`); `.github/workflows/security.yml` runs gitleaks/osv-scanner/semgrep in CI (osv-scanner fails only on High/Critical). Pre-existing semgrep false positives are suppressed inline with `// nosemgrep:` markers on the line directly above the trigger — keep them.
 
 ## Workspace topology & where the design lives
