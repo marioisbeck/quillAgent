@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Use the `mario` personal workbench and topic PRs into `main`, with explicit
+  delivery checkpoints and cleanup instead of accumulating local feature branches.
+
 ## [0.3.0] - 2026-10-25
 
 ### Added
