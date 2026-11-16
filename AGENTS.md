@@ -100,13 +100,15 @@ There is **no test runner, no linter, and no root `build` script** configured. `
 
 ## Git workflow
 
-Policy: https://github.com/marioisbeck/quillServer/blob/main/setup/git-workflow.md
-(local sibling: `../quillServer/setup/git-workflow.md`). Procedure:
-https://github.com/marioisbeck/quillServer/blob/main/config/workspace/skills/gitflow-commits/SKILL.md.
-Use the shared Quill solo workbench policy: `mario` holds ongoing work and
-independent topic PRs target `main`, where Mario merges. `develop` is legacy
-migration state. The shared policy owns authorization, security gates, resync,
-branch/worktree completion and release handoff; do not apply old Gitflow rules.
+Follow the [Quill solo Git workflow](https://github.com/marioisbeck/quillServer/blob/main/setup/git-workflow.md)
+(local sibling: `../quillServer/setup/git-workflow.md`) and the
+[delivery skill](https://github.com/marioisbeck/quillServer/blob/main/config/workspace/skills/gitflow-commits/SKILL.md).
+Work directly on `main`: check, commit and push scoped changes as part of an
+implementation request. Honor explicit local-only/draft limits. PRs, a personal
+workbench and human merge handoffs are optional. Preserve dirty files, other
+workers and frozen jobs; isolate only when needed. Keep security checks and
+hooks active. Requested releases use main plus an annotated SemVer tag;
+production deployment and connector approvals remain separate.
 
 - **Git email privacy** (`.cursor/rules/git-email-privacy.mdc`): commits use `22878918+marioisbeck@users.noreply.github.com`. On a `GH007` push rejection, amend the author to that noreply address.
 - **Layered security scanning:** `.pre-commit-config.yaml` runs gitleaks + hygiene hooks locally (`pre-commit install`); `.github/workflows/security.yml` runs gitleaks/osv-scanner/semgrep in CI (osv-scanner fails only on High/Critical). Pre-existing semgrep false positives are suppressed inline with `// nosemgrep:` markers on the line directly above the trigger — keep them.
