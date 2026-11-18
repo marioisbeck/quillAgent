@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Deduplicate Loopkind approvals for queued Telegram coding jobs so a retry
+  returns the original card.
+
 ### Changed
 
 - Use the `mario` personal workbench and topic PRs into `main`, with explicit

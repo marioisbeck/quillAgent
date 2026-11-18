@@ -296,6 +296,8 @@ const generateId = () => crypto.randomUUID();
 db.exec(`CREATE TABLE IF NOT EXISTS quill_schema_migrations (version INTEGER PRIMARY KEY);
   CREATE TABLE IF NOT EXISTS lifecycle_retention (
     approval_id TEXT PRIMARY KEY, context TEXT NOT NULL, hidden INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS telegram_coding_approvals (
+    job_id TEXT PRIMARY KEY, approval_id TEXT NOT NULL, request_hash TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS lifecycle_feedback (
     approval_id TEXT NOT NULL, generation TEXT NOT NULL, phase TEXT NOT NULL,
     context_signature TEXT NOT NULL, message_id TEXT NOT NULL,
@@ -941,7 +943,7 @@ app.get('/api/approvals/:id', (req, res) => {
   res.json({...parseApprovalRow(approval), executionGuardVersion: 1});
 });
 
-app.post('/api/approvals', (req, res) => {
+app.post(['/api/approvals', '/api/approvals/telegram-coding'], (req, res) => {
   const { action, payload } = req.body;
   if (typeof action !== 'string' || !action.trim()) {
     res.status(400).json({ error: 'action is required' });
@@ -956,13 +958,52 @@ app.post('/api/approvals', (req, res) => {
     res.status(400).json({error: 'Execution claim is server-managed'}); return;
   }
 
+  const queued = req.path.toLowerCase().replace(/\/$/, '') === '/api/approvals/telegram-coding';
+  const ctx = payload.details?.lifecycle;
+  const jobId = ctx?.origin?.codingJobId;
+  if (queued) {
+    if (action !== 'laptop_shell' || payload.connector !== 'laptop'
+        || !isRecord(ctx) || ctx.version !== 1 || ctx.connector !== 'laptop'
+        || ctx.origin?.channel !== 'telegram' || typeof jobId !== 'string' || !/^[a-f0-9]{32}$/.test(jobId)
+        || typeof ctx.attemptId !== 'string' || !/^[a-f0-9]{32}$/.test(ctx.attemptId)
+        || ctx.bridgeApprovalId !== payload.details?.bridgeApprovalId
+        || typeof ctx.signature !== 'string' || !/^[a-f0-9]{64}$/.test(ctx.signature)) {
+      res.status(400).json({error: 'Invalid Telegram coding approval'});
+      return;
+    }
+    const {signature, ...unsigned} = ctx;
+    const expected = crypto.createHmac('sha256', rawQuillApiKey).update(stableWire(unsigned)).digest();
+    if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), expected)) {
+      res.status(400).json({error: 'Invalid Telegram coding approval signature'});
+      return;
+    }
+  }
+  const requestHash = queued ? crypto.createHash('sha256').update(stableWire({action, payload})).digest('hex') : '';
   const id = generateId();
   const stmt = db.prepare('INSERT INTO approvals (id, action, payload) VALUES (?, ?, ?)');
-  db.transaction(() => {
+  const existing = db.transaction(() => {
+    if (queued) {
+      const prior = db.prepare('SELECT approval_id, request_hash FROM telegram_coding_approvals WHERE job_id=?')
+        .get(jobId) as {approval_id: string; request_hash: string} | undefined;
+      if (prior) return prior;
+      db.prepare('INSERT INTO telegram_coding_approvals (job_id, approval_id, request_hash) VALUES (?,?,?)')
+        .run(jobId, id, requestHash);
+    }
     stmt.run(id, action, JSON.stringify(payload));
     if (payload.details?.lifecycle?.version === 1) db.prepare('INSERT INTO lifecycle_retention (approval_id,context) VALUES (?,?)')
       .run(id, JSON.stringify(payload.details.lifecycle));
-  })();
+    return undefined;
+  }).immediate();
+
+  if (existing) {
+    const prior = getApprovalRow(existing.approval_id);
+    if (existing.request_hash !== requestHash || !prior) {
+      res.status(409).json({error: 'Telegram coding approval already recorded'});
+      return;
+    }
+    res.json(parseApprovalRow(prior));
+    return;
+  }
 
   const approval = getApprovalRow(id);
   const createdApproval = approval ? parseApprovalRow(approval) : null;
